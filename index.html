@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SmartPantry Prototype</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">SmartPantry</p>
+          <h1 id="pageTitle">Home</h1>
+        </div>
+        <button class="icon-button" type="button" data-view="upload" aria-label="Upload receipt">+</button>
+      </header>
+
+      <section id="homeView" class="view active" aria-labelledby="pageTitle">
+        <div class="summary-grid">
+          <button class="summary-card urgent" type="button" data-filter-status="Buy Now" data-view="pantry">
+            <span id="buyNowCount">0</span>
+            <small>Buy now</small>
+          </button>
+          <button class="summary-card soon" type="button" data-filter-status="Buy Soon" data-view="pantry">
+            <span id="buySoonCount">0</span>
+            <small>Buy soon</small>
+          </button>
+          <button class="summary-card stocked" type="button" data-filter-status="In Stock" data-view="pantry">
+            <span id="stockedCount">0</span>
+            <small>Stocked</small>
+          </button>
+        </div>
+
+        <div class="action-stack">
+          <button class="primary-action" type="button" data-view="upload">
+            <span>Upload Receipt</span>
+            <small>Add purchased items from a receipt photo</small>
+          </button>
+          <button class="secondary-action" type="button" data-view="list">
+            <span>Generate Grocery List</span>
+            <small>Use low stock and predicted needs</small>
+          </button>
+        </div>
+
+        <section class="section-block">
+          <div class="section-heading">
+            <h2>Needs Attention</h2>
+            <button class="text-button" type="button" data-view="pantry">View all</button>
+          </div>
+          <div id="attentionItems" class="item-list"></div>
+        </section>
+      </section>
+
+      <section id="uploadView" class="view">
+        <div class="scan-panel">
+          <div class="receipt-card">
+            <div class="receipt-line wide"></div>
+            <div class="receipt-line"></div>
+            <div class="receipt-line short"></div>
+            <div class="receipt-dash"></div>
+            <p>Receipt image preview</p>
+          </div>
+          <button id="scanReceiptBtn" class="primary-action compact" type="button">Process Receipt</button>
+        </div>
+
+        <section class="section-block">
+          <div class="section-heading">
+            <h2>Detected Items</h2>
+            <span id="scanStatus" class="status-pill neutral">Ready</span>
+          </div>
+          <div id="detectedItems" class="item-list"></div>
+          <button id="addDetectedBtn" class="secondary-action full" type="button" disabled>Add Detected Items to Pantry</button>
+        </section>
+      </section>
+
+      <section id="pantryView" class="view">
+        <label class="search-box">
+          <span>Search</span>
+          <input id="searchInput" type="search" class="form-control" placeholder="Search items">
+        </label>
+        <div class="filter-row" role="group" aria-label="Pantry filters">
+          <button class="filter-chip active" type="button" data-category="All">All</button>
+          <button class="filter-chip" type="button" data-category="Dairy">Dairy</button>
+          <button class="filter-chip" type="button" data-category="Bakery">Bakery</button>
+          <button class="filter-chip" type="button" data-category="Pantry">Pantry</button>
+          <button class="filter-chip" type="button" data-category="Produce">Produce</button>
+        </div>
+        <div id="pantryItems" class="grouped-list"></div>
+
+        <form id="addItemForm" class="add-form">
+          <h2>Add Item Manually</h2>
+          <input id="newItemName" class="form-control" required placeholder="Item name">
+          <div class="form-grid">
+            <select id="newItemCategory" class="form-select">
+              <option>Dairy</option>
+              <option>Bakery</option>
+              <option>Pantry</option>
+              <option>Produce</option>
+              <option>Protein</option>
+            </select>
+            <select id="newItemStatus" class="form-select">
+              <option>In Stock</option>
+              <option>Running Low</option>
+              <option>Buy Soon</option>
+              <option>Buy Now</option>
+            </select>
+          </div>
+          <button class="primary-action compact" type="submit">Add Item</button>
+        </form>
+      </section>
+
+      <section id="listView" class="view">
+        <section class="section-block">
+          <div class="section-heading">
+            <h2>Auto Generated</h2>
+            <span class="status-pill neutral">From pantry data</span>
+          </div>
+          <div id="groceryItems" class="item-list check-list"></div>
+        </section>
+
+        <form id="quickAddForm" class="add-form">
+          <h2>Add Extra Item</h2>
+          <div class="input-group">
+            <input id="extraItemName" class="form-control" required placeholder="Snacks, drinks, etc.">
+            <button class="btn btn-dark" type="submit">Add</button>
+          </div>
+        </form>
+
+        <section class="section-block">
+          <div class="section-heading">
+            <h2>Suggested</h2>
+            <span class="status-pill soon">Based on habits</span>
+          </div>
+          <div id="suggestedItems" class="item-list"></div>
+        </section>
+        <button id="createListBtn" class="primary-action compact full" type="button">Create List</button>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Primary">
+      <button class="nav-item active" type="button" data-view="home">Home</button>
+      <button class="nav-item" type="button" data-view="upload">Upload</button>
+      <button class="nav-item" type="button" data-view="pantry">Pantry</button>
+      <button class="nav-item" type="button" data-view="list">List</button>
+    </nav>
+
+    <div id="toast" class="toast-message" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
