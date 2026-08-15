@@ -1,4 +1,4 @@
-const state = {
+const defaultState = {
   view: "home",
   category: "All",
   statusFilter: null,
@@ -24,6 +24,36 @@ const state = {
     { id: "d3", name: "Orange Juice", category: "Dairy", qty: "1 carton", status: "In Stock" }
   ]
 };
+
+const STORAGE_KEY = "smartpantry";
+
+function loadState() {
+  const fresh = structuredClone(defaultState);
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (saved) {
+      fresh.pantry = saved.pantry ?? fresh.pantry;
+      fresh.groceryList = saved.groceryList ?? fresh.groceryList;
+      fresh.suggestions = saved.suggestions ?? fresh.suggestions;
+    }
+  } catch (e) { /* corrupted data, fall back to defaults */ }
+  return fresh;
+}
+
+const state = loadState();
+
+function saveState() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    pantry: state.pantry,
+    groceryList: state.groceryList,
+    suggestions: state.suggestions
+  }));
+}
+
+function resetState() {
+  localStorage.removeItem(STORAGE_KEY);
+  location.reload();
+}
 
 const pageTitles = {
   home: "Home",
@@ -181,6 +211,7 @@ document.addEventListener("click", (event) => {
     const item = state.pantry.find((entry) => entry.id === Number(cycle.dataset.cycleStatus));
     item.status = nextStatus(item.status);
     state.groceryList = [];
+    saveState();
     render();
   }
 
@@ -188,6 +219,7 @@ document.addEventListener("click", (event) => {
   if (remove) {
     state.pantry = state.pantry.filter((item) => item.id !== Number(remove.dataset.deleteItem));
     state.groceryList = [];
+    saveState();
     render();
   }
 
@@ -196,6 +228,7 @@ document.addEventListener("click", (event) => {
     const item = state.suggestions.find((entry) => entry.id === suggestion.dataset.addSuggestion);
     state.groceryList.push({ id: Date.now(), name: item.name, qty: "Suggested", status: "Buy Soon", done: false });
     state.suggestions = state.suggestions.filter((entry) => entry.id !== item.id);
+    saveState();
     renderGroceryList();
   }
 });
@@ -204,6 +237,7 @@ document.addEventListener("change", (event) => {
   if (!event.target.matches("[data-toggle-list]")) return;
   const item = state.groceryList.find((entry) => String(entry.id) === event.target.dataset.toggleList);
   item.done = event.target.checked;
+  saveState();
   renderGroceryList();
 });
 
@@ -223,6 +257,7 @@ $("#addItemForm").addEventListener("submit", (event) => {
   });
   event.target.reset();
   state.groceryList = [];
+  saveState();
   render();
   toast("Item added to pantry");
 });
@@ -237,6 +272,7 @@ $("#quickAddForm").addEventListener("submit", (event) => {
     done: false
   });
   event.target.reset();
+  saveState();
   renderGroceryList();
 });
 
@@ -252,6 +288,7 @@ $("#addDetectedBtn").addEventListener("click", () => {
   });
   state.scanned = false;
   state.groceryList = [];
+  saveState();
   render();
   toast("Detected items added");
   setView("pantry");
@@ -259,7 +296,12 @@ $("#addDetectedBtn").addEventListener("click", () => {
 
 $("#createListBtn").addEventListener("click", () => {
   const count = state.groceryList.filter((item) => !item.done).length;
+  saveState();
   toast(`${count} grocery items ready`);
+});
+
+$("#resetBtn").addEventListener("click", () => {
+  if (confirm("Reset Smart Pantry to demo data?")) resetState();
 });
 
 render();
