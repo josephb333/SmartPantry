@@ -61,7 +61,9 @@
             <div class="receipt-line"></div>
             <div class="receipt-line short"></div>
             <div class="receipt-dash"></div>
-            <p>Receipt image preview</p>
+            <input id="receiptInput" type="file" accept="image/*" class="form-control">
+            <img id="receiptPreview" alt="Receipt preview" style="max-width:100%; display:none; border-radius:8px;">
+            <p id="previewLabel">Receipt image preview</p>
           </div>
           <button id="scanReceiptBtn" class="primary-action compact" type="button">Process Receipt</button>
         </div>

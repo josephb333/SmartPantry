@@ -276,6 +276,21 @@ $("#quickAddForm").addEventListener("submit", (event) => {
   renderGroceryList();
 });
 
+let receiptFile = null;
+
+$("#receiptInput").addEventListener("change", (event) => {
+  receiptFile = event.target.files[0] || null;
+  const preview = $("#receiptPreview");
+  if (receiptFile) {
+    preview.src = URL.createObjectURL(receiptFile);
+    preview.style.display = "block";
+    $("#previewLabel").style.display = "none";
+  } else {
+    preview.style.display = "none";
+    $("#previewLabel").style.display = "";
+  }
+});
+
 $("#scanReceiptBtn").addEventListener("click", () => {
   state.scanned = true;
   renderUpload();
