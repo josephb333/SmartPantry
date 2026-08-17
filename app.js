@@ -191,6 +191,29 @@ function nextStatus(status) {
   }[status];
 }
 
+const JUNK = /TOTAL|SUBTOTAL|TAX|CHANGE|DEBIT|CREDIT|VISA|MASTERCARD|CASH|BALANCE|SAVINGS|COUPON|THANK/i;
+
+function parseReceipt(text) {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 2 && !JUNK.test(line))
+    .map((line) => {
+      const priceMatch = line.match(/(\d+[.,]\d{2})\s*[A-Z]?\s*$/);
+      if (!priceMatch) return null;
+      const name = line.slice(0, priceMatch.index).replace(/[^A-Za-z0-9 %&'-]/g, " ").replace(/\s+/g, " ").trim();
+      if (name.length < 2) return null;
+      return {
+        id: Date.now() + Math.random(),
+        name,
+        category: "Pantry",
+        qty: priceMatch[1].replace(",", "."),
+        status: "In Stock"
+      };
+    })
+    .filter(Boolean);
+}
+
 document.addEventListener("click", (event) => {
   const viewButton = event.target.closest("[data-view]");
   if (viewButton) {
