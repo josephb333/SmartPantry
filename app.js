@@ -291,11 +291,21 @@ $("#receiptInput").addEventListener("change", (event) => {
   }
 });
 
-$("#scanReceiptBtn").addEventListener("click", () => {
-  state.scanned = true;
-  renderUpload();
-  toast("Receipt processed");
-});
+$("#scanReceiptBtn").addEventListener("click", async () => {
+  if (!receiptFile) { toast("Choose a receipt photo first"); return;  }
+  $("#scanStatus").textContent = "Reading...";
+  try {
+      const result = await Tesseract.recognize(receiptFile, "eng");
+      console.log(result.data.text);
+      window.lastReceiptText = result.data.text;
+      $("$scanStatus").textContent = "Read Complete (see Console)";
+      toast("Receipt read");
+  } catch (err) {
+    console.error(err);
+    $("#scanStatus").textContent = "Read Failed";
+    toast("Could not read image");
+  }
+  });
 
 $("#addDetectedBtn").addEventListener("click", () => {
   state.detected.forEach((item) => {
