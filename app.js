@@ -18,11 +18,7 @@ const defaultState = {
     { id: "s1", name: "Butter", reason: "Usually bought every 2 weeks" },
     { id: "s2", name: "Chicken Breast", reason: "Roommate dinner pattern" }
   ],
-  detected: [
-    { id: "d1", name: "Spinach", category: "Produce", qty: "1 bag", status: "In Stock" },
-    { id: "d2", name: "Coffee", category: "Pantry", qty: "1 bag", status: "In Stock" },
-    { id: "d3", name: "Orange Juice", category: "Dairy", qty: "1 carton", status: "In Stock" }
-  ]
+  detected: []
 };
 
 const STORAGE_KEY = "smartpantry";
@@ -164,7 +160,7 @@ function renderUpload() {
   $("#detectedItems").innerHTML = state.scanned
     ? state.detected.map((item) => renderItemRow(item, { badge: "Detected" })).join("")
     : `<p class="text-secondary">Process a receipt to preview extracted items.</p>`;
-  $("#scanStatus").textContent = state.scanned ? "3 found" : "Ready";
+  $("#scanStatus").textContent = state.scanned ? `${state.detected.length} found` : "Ready";
   $("#addDetectedBtn").disabled = !state.scanned;
 }
 
@@ -315,20 +311,27 @@ $("#receiptInput").addEventListener("change", (event) => {
 });
 
 $("#scanReceiptBtn").addEventListener("click", async () => {
-  if (!receiptFile) { toast("Choose a receipt photo first"); return;  }
+  if (!receiptFile) { toast("Choose a receipt photo first"); return; }
   $("#scanStatus").textContent = "Reading...";
   try {
-      const result = await Tesseract.recognize(receiptFile, "eng");
-      console.log(result.data.text);
-      window.lastReceiptText = result.data.text;
-      $("#scanStatus").textContent = "Read Complete (see Console)";
-      toast("Receipt read");
+    const result = await Tesseract.recognize(receiptFile, "eng");
+    window.lastReceiptText = result.data.text;
+    const items = parseReceipt(result.data.text);
+    if (!items.length) {
+      $("#scanStatus").textContent = "No items found — try a clearer photo";
+      toast("Nothing parsed");
+      return;
+    }
+    state.detected = items;
+    state.scanned = true;
+    renderUpload();
+    toast(`${items.length} items detected`);
   } catch (err) {
     console.error(err);
-    $("#scanStatus").textContent = "Read Failed";
-    toast("Could not read image");
+    $("#scanStatus").textContent = "Read failed";
+    toast("Could not read that image");
   }
-  });
+});
 
 $("#addDetectedBtn").addEventListener("click", () => {
   state.detected.forEach((item) => {
