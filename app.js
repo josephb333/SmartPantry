@@ -298,7 +298,7 @@ $("#scanReceiptBtn").addEventListener("click", async () => {
       const result = await Tesseract.recognize(receiptFile, "eng");
       console.log(result.data.text);
       window.lastReceiptText = result.data.text;
-      $("$scanStatus").textContent = "Read Complete (see Console)";
+      $("#scanStatus").textContent = "Read Complete (see Console)";
       toast("Receipt read");
   } catch (err) {
     console.error(err);
