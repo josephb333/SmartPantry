@@ -4,6 +4,32 @@ Working notes from taking this from class prototype to real product. Newest firs
 
 ---
 
+## 2026-08-17 — The parser gets gated, then the pipeline goes real
+
+**The confession first:** Yesterday's devlog originally claimed the parser shipped. It hadn't — the function was still sitting in my planning doc. Caught it this morning running my own verification check before starting new work, corrected the log (see previous commit), and adopted the rule permanently: **claims get verified in the console, not the plan.**
+
+**Then made it true — M2 shipped and gated:** Pasted the parser in, ran it against the kebab receipt's OCR text, and the output matched the prediction made two days ago exactly:
+
+- `Chicken Kebab Plate — 21.95` ✓
+- `Bottled Soft Drink — 3.95` ✓
+- Cola: correctly dropped (modifier line, no price)
+- Address, phone, Ticket #: correctly dropped (no price pattern)
+- Subtotal / Sales Tax / Total / US DEBIT: correctly killed by the junk filter
+
+Every line of the receipt went exactly where the design said it would. Prediction → gate → verified → *then* claimed. In that order this time.
+
+**M3 shipped — photo to pantry, end to end:** The scan handler now runs the real chain: recognize → parse → guard (empty result gets "try a clearer photo" instead of a silent nothing) → detected items render for review → Add pushes them into the pantry → persistence keeps them there. The hardcoded "3 found" is now a real count, and the three fake seed items (Spinach, Coffee, Orange Juice — the ones that "detected" on every photo since the prototype) are deleted. The fake pipeline is the real pipeline. The review-before-add screen my team designed for mock data turned out to be exactly the right shape for real, imperfect OCR — the human is the error correction.
+
+**Bug of the day — the one worth studying:** First draft of the new handler had the guard inverted: `if (items.length)` instead of `if (!items.length)`. That bug fails *silently in both directions* — successful parses would announce "No items found" and bail; empty parses would sail through and render nothing. No error, no crash, just an app that lies. Caught in review before it ever ran. Inverted guards are the bug class that survives to production; this one didn't get the chance.
+
+**Spelling curse, victim #4:** `rendeerUpload`. The chapter's bug ledger now reads: four bugs, four single-character-or-single-word typos, zero logic errors that shipped. (The inverted guard would have been the first — review caught it.)
+
+**Also learned (from yesterday, confirmed today): OCR is nondeterministic.** Same photo, same code, different text run to run — the engine's segmentation makes probabilistic layout calls before reading a single character. Third run on the same image today came back clean again, but the variance is real. It's another argument for the review screen, and it put "best of N reads" on the parking lot.
+
+**State of the app:** A photographed receipt becomes reviewed, approved, persistent pantry items — fully client-side, no server, no accounts, receipt never leaves the device. The core loop the prototype faked is now just... how it works.
+
+**Next:** Teaching the app what cryptic receipt names actually mean, and squeezing more accuracy out of bad photos.
+
 ## 2026-08-16 — Receipt OCR: it reads for real
 
 **Shipped:** Milestones 0–1 of the receipt chapter. A real file input with image preview (the prototype never actually accepted an image — the upload box was decorative). Tesseract.js wired in for fully in-browser OCR — no server, no API keys, the receipt never leaves the device. Raw receipt text now dumps from a photographed receipt.

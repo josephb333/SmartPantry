@@ -26,14 +26,14 @@ Honesty section, kept current as features ship:
 | Manual item add / delete | Real |
 | List generation from pantry state | Real |
 | Persistence | **Real — localStorage, shipped Aug 2026** |
-| Receipt "processing" | **Mocked — returns hardcoded items** |
+| Receipt "processing" | **Real — in-browser OCR + price-anchored parsing, shipped Aug 2026** |
 | Habit-based suggestions | **Mocked — hardcoded** |
 
 ## Roadmap
 
 **Next up:**
 1. ~~Persistence — pantry state survives a refresh~~ ✅ Shipped
-2. **Real receipt scanning** — actual OCR on an uploaded photo, parsed into structured items feeding the existing detected-items flow *(in progress next)*
+2. ~~Real receipt scanning~~ ✅ Shipped
 
 **Later:** real purchase-history-based suggestions, quantity tracking, PWA install so it lives on a phone home screen like it should.
 
