@@ -10,7 +10,7 @@ This started as a five-person team project for CSC 642 (Human-Computer Interacti
 
 - **Home dashboard** — at-a-glance counts of what needs buying now, soon, and what's stocked, plus a "Needs Attention" list
 - **Pantry** — items grouped by category (Dairy, Bakery, Pantry, Produce, Protein) with search, category filters, status cycling (In Stock → Running Low → Buy Soon → Buy Now), and manual add/delete
-- **Receipt upload** — upload a receipt photo, extract the items, add them to your pantry in one tap
+- **Receipt upload** — photograph a receipt, in-browser OCR extracts the items, review and reject anything wrong, add the rest to your pantry in one tap. Tested against a real Trader Joe's receipt: 14/14 products detected (see [DEVLOG](DEVLOG.md))
 - **Grocery list** — auto-generated from anything running low, plus habit-based suggestions and manual extras
 - **Persistence** — your pantry survives refreshes and reopens; a reset button (↺) restores the demo data
 
@@ -36,6 +36,7 @@ Honesty section, kept current as features ship:
 2. ~~Real receipt scanning~~ ✅ Shipped
 
 **Later:** real purchase-history-based suggestions, quantity tracking, PWA install so it lives on a phone home screen like it should.
+**Later:** quantity tracking from receipt data, real purchase-history-based suggestions, smarter item names, PWA install so it lives on a phone home screen like it should.
 
 ## Credit
 

@@ -4,6 +4,31 @@ Working notes from taking this from class prototype to real product. Newest firs
 
 ---
 
+## Day 7 — 2026-08-19 — The Impostor
+
+First real-world test: my own Trader Joe's receipt, 14 known items.
+
+**Result: 14/14 products detected.** Zero missed. One mangled name
+("ER OKYR CHERRY 5 3 0" = Yogurt Skyr Cherry — top-of-receipt curl).
+And one impostor: "6 8 — $0.29". That's the banana quantity line
+("6 @ $0.29") — OCR read the @ as an 8, and the parser let it through
+because it ends in a price, which is the only thing the parser checks.
+Scammed by its own rule.
+
+**Shipped today:**
+- Ghost filter: lines whose "name" is only digits/spaces get rejected
+- Reject-in-review: detected items can now be tossed before they hit
+  the pantry (previously add-all-then-delete — misfit)
+- Review screen confirm CTA: status chips made no sense pre-pantry;
+  replaced with reject buttons + a proper "Everything look good?" confirm
+
+**Known limits, logged:**
+- Quantity lines carry real data (that "6 @ $0.29" IS the banana count) —
+  currently filtered, not harvested. Next.
+- Detected item meta shows price where count belongs. Same fix.
+- One receipt, one store. TJ's prints friendly names — accuracy number
+  is a TJ's number, not a universal one.
+  
 ## 2026-08-17 — The parser gets gated, then the pipeline goes real
 
 **The confession first:** Yesterday's devlog originally claimed the parser shipped. It hadn't — the function was still sitting in my planning doc. Caught it this morning running my own verification check before starting new work, corrected the log (see previous commit), and adopted the rule permanently: **claims get verified in the console, not the plan.**
