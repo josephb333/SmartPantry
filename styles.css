@@ -324,3 +324,41 @@ h2 { margin-bottom: 0; font-size: 1rem; }
     border-radius: 8px;
   }
 }
+
+/* Review screen affordances */
+.reject-btn {
+  background: #C4444F;          /* soft red — muted, not alarm-red */
+  border: 1px solid #C4444F;
+  color: #fff;
+}
+
+.reject-btn:hover {
+  background: #A93540;
+  border-color: #A93540;
+}
+
+#addDetectedBtn.ready {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  margin-top: 16px;
+}
+
+#addDetectedBtn.ready:hover {
+  background: #1f5c49;
+}
+
+#addDetectedBtn .cta-title {
+  display: block;
+  font-weight: 750;
+  font-size: 1.25rem;
+}
+
+#addDetectedBtn .cta-sub {
+  display: block;
+  font-weight: 400;
+  font-size: 0.8rem;
+  opacity: 0.85;
+}

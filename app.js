@@ -158,10 +158,23 @@ function renderGroceryList() {
 
 function renderUpload() {
   $("#detectedItems").innerHTML = state.scanned
-    ? state.detected.map((item) => renderItemRow(item, { badge: "Detected" })).join("")
+    ? state.detected.map((item) => `
+        <div class="item-row">
+          <span></span>
+          <div>
+            <div class="item-name">${item.name}</div>
+            <div class="item-meta">${item.qty}</div>
+          </div>
+          <button class="mini-button reject-btn" type="button" data-id="${item.id}">Reject?</button>
+        </div>
+      `).join("")
     : `<p class="text-secondary">Process a receipt to preview extracted items.</p>`;
-  $("#scanStatus").textContent = state.scanned ? `${state.detected.length} found` : "Ready";
-  $("#addDetectedBtn").disabled = !state.scanned;
+  $("#scanStatus").textContent = state.scanned ? `${state.detected.length} found` : "Ready";  
+  const addBtn = $("#addDetectedBtn");
+  const showConfirm = state.scanned && state.detected.length > 0;
+  addBtn.style.display = showConfirm ? "" : "none";
+  addBtn.disabled = !showConfirm;
+  addBtn.classList.toggle("ready", showConfirm);
 }
 
 function render() {
@@ -199,6 +212,7 @@ function parseReceipt(text) {
       if (!priceMatch) return null;
       const name = line.slice(0, priceMatch.index).replace(/[^A-Za-z0-9 %&'-]/g, " ").replace(/\s+/g, " ").trim();
       if (name.length < 2) return null;
+      if (/^[\d\s.@]+$/.test(name)) return null; // ghost filter: qty lines ("6 @ 0.29") aren't products
       return {
         id: Date.now() + Math.random(),
         name,
@@ -331,6 +345,13 @@ $("#scanReceiptBtn").addEventListener("click", async () => {
     $("#scanStatus").textContent = "Read failed";
     toast("Could not read that image");
   }
+});
+
+$("#detectedItems").addEventListener("click", (event) => {
+  const btn = event.target.closest(".reject-btn");
+  if (!btn) return;
+  state.detected = state.detected.filter((item) => String(item.id) !== btn.dataset.id);
+  renderUpload();
 });
 
 $("#addDetectedBtn").addEventListener("click", () => {
