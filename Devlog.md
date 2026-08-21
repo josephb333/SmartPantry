@@ -4,6 +4,50 @@ Working notes from taking this from class prototype to real product. Newest firs
 
 ---
 
+## Day 9 — 2026-08-21 — The Harvest
+
+Tester feedback batch: quantity lines, junk sub-lines, dirty names.
+
+**Shipped (parseReceipt rewrite, `938520e`):**
+- Quantity lines ("4 @ $1.19") are now harvested, not filtered: the count
+  attaches as qty to the item above. The tolerant pattern handles OCR
+  mangling — tonight's live run read the banana line as "6 8 $0.29"
+  (@ became an 8) and it still landed as `qty=6 @ $0.29`. This replaces
+  the Day 7 ghost filter with real logic.
+- Detected-item meta now shows the count where the count belongs; the
+  line price moved to its own `price` field.
+- Price-ending sub-lines (REGULAR PRICE, RETURN VALUE, SALE PRICE…) are
+  filtered — they end in a price, which used to be the only thing the
+  parser checked, so they parsed as items.
+- Names lose leading register index digits and a trailing dept code
+  ("1 NICE TWIST… A" → "NICE TWIST…").
+
+**Verified:** TJ receipt 14/14 before → 14/14 after, zero regressions,
+banana qty harvested. Walgreens patterns verified against a synthetic
+fixture (8 items incl. 3 junk → 4 clean) — **the tester's actual
+Walgreens image never made it to disk, so the real-image run is still
+owed.** Before/after item lists captured from the console for both.
+
+**Shipped (dictionary tier, `0667021`):** NAME_MAP (abbrev → real name)
++ CATEGORY_HINTS (keyword → category), wired in as `expandName` /
+`guessCategory`. Seeded strictly from tonight's actual console strings:
+"ER OKYR CHERRY 5 3 0" now resolves to Cherry Yogurt / Dairy; six names
+resolve, 12 of 14 items auto-categorize off the Pantry default.
+
+**Shipped (installability, `6ad9338`):** manifest.json + 192/512 icons +
+apple-touch-icon, theme color from the app green. Deliberately **no
+service worker** — daily builds + cache-first = stale testers. Manifest
+validated and all assets fetch 200 locally; install-on-device check
+needs the app on HTTPS hosting first.
+
+**Known limits, logged:**
+- OCR nondeterminism confirmed again: only 1 of the receipt's 4 quantity
+  lines survived OCR tonight (banana). The harvest logic is exercised;
+  the OCR miss rate is the ceiling. "Best of N reads" stays on the
+  parking lot.
+- NAME_MAP is TJ-seeded only. Walgreens entries wait for real output
+  from the real image.
+
 ## Day 7 — 2026-08-19 — The Impostor
 
 First real-world test: my own Trader Joe's receipt, 14 known items.
