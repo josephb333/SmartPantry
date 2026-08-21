@@ -201,27 +201,43 @@ function nextStatus(status) {
 }
 
 const JUNK = /TOTAL|SUBTOTAL|TAX|CHANGE|DEBIT|CREDIT|VISA|MASTERCARD|CASH|BALANCE|SAVINGS|COUPON|THANK/i;
+// price-ending sub-lines that describe the item above them, not a product
+const SUB_LINE_JUNK = /(REGULAR|SALE|ORIG(?:INAL)?)\s+PRICE|RETURN\s+VALUE|PRICE\s+YOU\s+PAY|MEMBER\s+(SAV|PRICE)/i;
+// count line under an item: "4 @ $1.19" — OCR often mangles the @ (8, e, —),
+// so accept: small int, any non-letter junk, then a price, and nothing else
+const QTY_LINE = /^(\d{1,3})\b[^A-Za-z]*?(\d+[.,]\d{2})\s*$/;
 
 function parseReceipt(text) {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 2 && !JUNK.test(line))
-    .map((line) => {
-      const priceMatch = line.match(/(\d+[.,]\d{2})\s*[A-Z]?\s*$/);
-      if (!priceMatch) return null;
-      const name = line.slice(0, priceMatch.index).replace(/[^A-Za-z0-9 %&'-]/g, " ").replace(/\s+/g, " ").trim();
-      if (name.length < 2) return null;
-      if (/^[\d\s.@]+$/.test(name)) return null; // ghost filter: qty lines ("6 @ 0.29") aren't products
-      return {
-        id: Date.now() + Math.random(),
-        name,
-        category: "Pantry",
-        qty: priceMatch[1].replace(",", "."),
-        status: "In Stock"
-      };
-    })
-    .filter(Boolean);
+  const items = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line.length <= 2 || JUNK.test(line)) continue;
+
+    const qtyMatch = line.match(QTY_LINE);
+    if (qtyMatch) {
+      const prev = items[items.length - 1];
+      if (prev) prev.qty = `${qtyMatch[1]} @ $${qtyMatch[2].replace(",", ".")}`;
+      continue;
+    }
+
+    const priceMatch = line.match(/(\d+[.,]\d{2})\s*[A-Z]?\s*$/);
+    if (!priceMatch) continue;
+    if (SUB_LINE_JUNK.test(line)) continue;
+    const name = line.slice(0, priceMatch.index)
+      .replace(/[^A-Za-z0-9 %&'-]/g, " ").replace(/\s+/g, " ").trim()
+      .replace(/^\d+\s+/, "")   // leading register index digits
+      .replace(/\s+A$/, "");    // trailing register dept code glued onto the name
+    if (name.length < 2) continue;
+    items.push({
+      id: Date.now() + Math.random(),
+      name,
+      category: "Pantry",
+      qty: "1",
+      price: priceMatch[1].replace(",", "."),
+      status: "In Stock"
+    });
+  }
+  return items;
 }
 
 document.addEventListener("click", (event) => {
