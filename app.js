@@ -200,6 +200,48 @@ function nextStatus(status) {
   }[status];
 }
 
+// abbrev → real name; keys are actual OCR output strings from real runs
+const NAME_MAP = {
+  "ER OKYR CHERRY": "Cherry Yogurt",
+  "VEGGIE STICKS POTATO SNA": "Veggie Sticks Potato Snacks",
+  "SLICED TURKEY BREAST ROA": "Sliced Turkey Breast",
+  "TORTILLAS ORG SPROUTED W": "Organic Sprouted Wheat Tortillas",
+  "A-APPLE BAG SUGARBEE": "SugarBee Apples 2lb Bag",
+  "OATMEAL INSTANT MAPLE BR": "Instant Oatmeal Maple Brown Sugar"
+};
+
+const CATEGORY_HINTS = {
+  "yogurt": "Dairy",
+  "cheese": "Dairy",
+  "milk": "Dairy",
+  "bread": "Bakery",
+  "tortilla": "Bakery",
+  "apple": "Produce",
+  "banana": "Produce",
+  "grape": "Produce",
+  "lettuce": "Produce",
+  "mango": "Produce",
+  "turkey": "Protein",
+  "jerky": "Protein",
+  "chicken": "Protein"
+};
+
+function expandName(raw) {
+  const upper = raw.toUpperCase();
+  for (const [abbrev, full] of Object.entries(NAME_MAP)) {
+    if (upper.includes(abbrev.toUpperCase())) return full;
+  }
+  return raw;
+}
+
+function guessCategory(name) {
+  const lower = name.toLowerCase();
+  for (const [keyword, category] of Object.entries(CATEGORY_HINTS)) {
+    if (lower.includes(keyword)) return category;
+  }
+  return "Pantry";
+}
+
 const JUNK = /TOTAL|SUBTOTAL|TAX|CHANGE|DEBIT|CREDIT|VISA|MASTERCARD|CASH|BALANCE|SAVINGS|COUPON|THANK/i;
 // price-ending sub-lines that describe the item above them, not a product
 const SUB_LINE_JUNK = /(REGULAR|SALE|ORIG(?:INAL)?)\s+PRICE|RETURN\s+VALUE|PRICE\s+YOU\s+PAY|MEMBER\s+(SAV|PRICE)/i;
@@ -228,10 +270,11 @@ function parseReceipt(text) {
       .replace(/^\d+\s+/, "")   // leading register index digits
       .replace(/\s+A$/, "");    // trailing register dept code glued onto the name
     if (name.length < 2) continue;
+    const cleanName = expandName(name);
     items.push({
       id: Date.now() + Math.random(),
-      name,
-      category: "Pantry",
+      name: cleanName,
+      category: guessCategory(cleanName),
       qty: "1",
       price: priceMatch[1].replace(",", "."),
       status: "In Stock"
