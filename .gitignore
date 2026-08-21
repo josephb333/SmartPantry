@@ -56,3 +56,6 @@ dist/
 .DS_Store
 coverage/
 .nyc_output/
+# local test assets
+test-harness.html
+tj-receipt.jpg
