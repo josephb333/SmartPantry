@@ -210,20 +210,102 @@ const NAME_MAP = {
   "OATMEAL INSTANT MAPLE BR": "Instant Oatmeal Maple Brown Sugar"
 };
 
+// first-hit-wins in insertion order — specific blocks (Frozen "ice cream",
+// Snacks "sticks"/"chips", Breakfast "oatmeal") must sit above the generic
+// words they contain or co-occur with (Dairy "cream", Produce "potato",
+// Pantry "sugar")
 const CATEGORY_HINTS = {
+  "ice cream": "Frozen",
+  "frozen": "Frozen",
+  "pizza": "Frozen",
+  "paper towel": "Household",
+  "toilet": "Household",
+  "detergent": "Household",
+  "soap": "Household",
+  "trash": "Household",
+  "shampoo": "Personal Care",
+  "toothpaste": "Personal Care",
+  "deodorant": "Personal Care",
+  "lotion": "Personal Care",
+  "vitamin": "Personal Care",
+  "oatmeal": "Breakfast",
+  "oats": "Breakfast",
+  "cereal": "Breakfast",
+  "pancake": "Breakfast",
+  "syrup": "Breakfast",
+  "granola bar": "Snacks",
+  "chips": "Snacks",
+  "sticks": "Snacks",
+  "crackers": "Snacks",
+  "pretzel": "Snacks",
+  "popcorn": "Snacks",
+  "cookie": "Snacks",
+  "candy": "Snacks",
+  "chocolate": "Snacks",
+  "coffee": "Beverages",
+  "espresso": "Beverages",
+  "tea": "Beverages",
+  "juice": "Beverages",
+  "soda": "Beverages",
+  "water": "Beverages",
+  "drink": "Beverages",
+  "kombucha": "Beverages",
+  "milk": "Dairy",
   "yogurt": "Dairy",
   "cheese": "Dairy",
-  "milk": "Dairy",
+  "butter": "Dairy",
+  "cream": "Dairy",
+  "skyr": "Dairy",
+  "kefir": "Dairy",
+  "egg": "Dairy",
+  "turkey": "Protein",
+  "chicken": "Protein",
+  "beef": "Protein",
+  "jerky": "Protein",
+  "pork": "Protein",
+  "ham": "Protein",
+  "bacon": "Protein",
+  "fish": "Protein",
+  "salmon": "Protein",
+  "tuna": "Protein",
+  "tofu": "Protein",
+  "sausage": "Protein",
   "bread": "Bakery",
   "tortilla": "Bakery",
+  "bagel": "Bakery",
+  "bun": "Bakery",
+  "roll": "Bakery",
+  "muffin": "Bakery",
+  "croissant": "Bakery",
   "apple": "Produce",
   "banana": "Produce",
   "grape": "Produce",
-  "lettuce": "Produce",
   "mango": "Produce",
-  "turkey": "Protein",
-  "jerky": "Protein",
-  "chicken": "Protein"
+  "lettuce": "Produce",
+  "berry": "Produce",
+  "orange": "Produce",
+  "lemon": "Produce",
+  "onion": "Produce",
+  "potato": "Produce",
+  "tomato": "Produce",
+  "avocado": "Produce",
+  "spinach": "Produce",
+  "carrot": "Produce",
+  "pepper": "Produce",
+  "cucumber": "Produce",
+  "broccoli": "Produce",
+  "fruit": "Produce",
+  "salad": "Produce",
+  "rice": "Pantry",
+  "pasta": "Pantry",
+  "sauce": "Pantry",
+  "soup": "Pantry",
+  "beans": "Pantry",
+  "flour": "Pantry",
+  "sugar": "Pantry",
+  "oil": "Pantry",
+  "spice": "Pantry",
+  "canned": "Pantry"
 };
 
 function expandName(raw) {
@@ -235,9 +317,13 @@ function expandName(raw) {
 }
 
 function guessCategory(name) {
-  const lower = name.toLowerCase();
   for (const [keyword, category] of Object.entries(CATEGORY_HINTS)) {
-    if (lower.includes(keyword)) return category;
+    // whole words only ("oil" must not hit TOILET, "tea" must not hit STEAK),
+    // with plural tolerance; "berry" also matches as a suffix (STRAWBERRY)
+    const pattern = keyword === "berry"
+      ? /berr(y|ies)\b/i
+      : new RegExp(`\\b${keyword.replace(/s$/, "")}s?\\b`, "i");
+    if (pattern.test(name)) return category;
   }
   return "Pantry";
 }
