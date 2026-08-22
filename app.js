@@ -251,6 +251,7 @@ const QTY_LINE = /^(\d{1,3})\b[^A-Za-z]*?(\d+[.,]\d{2})\s*$/;
 
 function parseReceipt(text) {
   const items = [];
+  const tableRows = [];
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (line.length <= 2 || JUNK.test(line)) continue;
@@ -271,15 +272,18 @@ function parseReceipt(text) {
       .replace(/\s+A$/, "");    // trailing register dept code glued onto the name
     if (name.length < 2) continue;
     const cleanName = expandName(name);
+    const category = guessCategory(cleanName);
+    tableRows.push({ raw: name, expanded: cleanName, category });
     items.push({
       id: Date.now() + Math.random(),
       name: cleanName,
-      category: guessCategory(cleanName),
+      category,
       qty: "1",
       price: priceMatch[1].replace(",", "."),
       status: "In Stock"
     });
   }
+  console.table(tableRows);
   return items;
 }
 
