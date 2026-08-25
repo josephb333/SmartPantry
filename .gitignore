@@ -1,4 +1,4 @@
-# Created by codeshack.io
+﻿# Created by codeshack.io
 
 ### macOS ###
 .DS_Store
@@ -61,4 +61,4 @@ test-harness.html
 tj-receipt.jpg
 .claude/
 CLAUDE.local.md
-ocr-lab.html
+ocr-lab*.html
