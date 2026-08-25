@@ -213,12 +213,41 @@ const NAME_MAP = {
   "ER OKYR CHERRY": "Cherry Yogurt",
   "YOGURT SKYR CHERRY": "Cherry Yogurt",
   "VEGGIE STICKS POTATO SNA": "Veggie Sticks Potato Snacks",
+  "BEEF JERKY ORIGINAL": "Beef Jerky (Original Flavor)",
+  "COFFEE ESPRESSO RTD": "Espresso",
   "SLICED TURKEY BREAST ROA": "Sliced Turkey Breast",
   "TORTILLAS ORG SPROUTED W": "Organic Sprouted Wheat Tortillas",
   "TORTILLAS ORG SRROUTED": "Organic Sprouted Wheat Tortillas",
   "A-APPLE BAG SUGARBEE": "SugarBee Apples 2lb Bag",
+  "MANGO SOFT & JUICY": "Mango Soft & Juicy Snack",
+  "LETTUCE ICEBERG": "Lettuce (Iceberg)",
+  "BANANA ORG": "Bananas (Organic)",
   "OATMEAL INSTANT MAPLE BR": "Instant Oatmeal Maple Brown Sugar"
 };
+
+// receipt-style tokens that aren't part of a product's name
+const NOISE_TOKEN = /^(EACH|EA)$/i;
+const UNIT_TOKEN = /^(LB|OZ|KG|G)S?$/i;
+// modifiers that read better as a parenthetical after the name
+const MODIFIER_MAP = { ORG: "Organic", ORGANIC: "Organic", SEEDLESS: "Seedless" };
+
+// fallback normalizer for names NAME_MAP doesn't know:
+// Title Case, drop unit noise ("EACH", "2 LB"), lift modifiers into parens
+function prettifyName(raw) {
+  const tokens = raw.split(" ");
+  const kept = [], mods = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (NOISE_TOKEN.test(t)) continue;
+    if (/^\d+(\.\d+)?(LB|OZ|KG|G)$/i.test(t)) continue;
+    if (/^\d+(\.\d+)?$/.test(t) && i + 1 < tokens.length && UNIT_TOKEN.test(tokens[i + 1])) { i++; continue; }
+    const mod = MODIFIER_MAP[t.toUpperCase()];
+    if (mod) { mods.push(mod); continue; }
+    kept.push(/^[0-9&%'-]+$/.test(t) ? t : t.charAt(0).toUpperCase() + t.slice(1).toLowerCase());
+  }
+  const name = kept.join(" ") + (mods.length ? ` (${mods.join(", ")})` : "");
+  return name.trim() || raw;
+}
 
 // first-hit-wins in insertion order — specific blocks (Frozen "ice cream",
 // Snacks "sticks"/"chips", Breakfast "oatmeal") must sit above the generic
@@ -323,7 +352,7 @@ function expandName(raw) {
   for (const [abbrev, full] of Object.entries(NAME_MAP)) {
     if (upper.includes(abbrev.toUpperCase())) return full;
   }
-  return raw;
+  return prettifyName(raw);
 }
 
 function guessCategory(name) {
