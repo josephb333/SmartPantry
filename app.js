@@ -51,6 +51,24 @@ function resetState() {
   location.reload();
 }
 
+const EVENT_LOG_KEY = "smartpantry_events";
+
+// append-only purchase/consumption history; no UI reads it yet
+function logEvent(type, item) {
+  try {
+    const events = JSON.parse(localStorage.getItem(EVENT_LOG_KEY)) || [];
+    events.push({
+      name: item.name,
+      category: item.category || null,
+      qty: item.qty || null,
+      price: item.price || null,
+      timestamp: new Date().toISOString(),
+      type
+    });
+    localStorage.setItem(EVENT_LOG_KEY, JSON.stringify(events));
+  } catch (e) { /* the log must never break the app */ }
+}
+
 const pageTitles = {
   home: "Home",
   upload: "Upload Receipt",
@@ -89,8 +107,7 @@ function renderItemRow(item, options = {}) {
     : `<span aria-hidden="true">${options.dot || ""}</span>`;
   const actions = options.pantryActions
     ? `<div class="row-actions">
-        <button class="mini-button" type="button" data-cycle-status="${item.id}">Status</button>
-        <button class="mini-button" type="button" data-delete-item="${item.id}">Delete</button>
+        <button class="mini-button" type="button" data-delete-item="${item.id}">All done</button>
       </div>`
     : statusBadge(item.status || options.badge || "");
 
@@ -189,15 +206,6 @@ function toast(message) {
   node.textContent = message;
   node.classList.add("show");
   window.setTimeout(() => node.classList.remove("show"), 1800);
-}
-
-function nextStatus(status) {
-  return {
-    "In Stock": "Running Low",
-    "Running Low": "Buy Soon",
-    "Buy Soon": "Buy Now",
-    "Buy Now": "In Stock"
-  }[status];
 }
 
 // abbrev → real name; keys are actual OCR output strings from real runs
@@ -388,17 +396,10 @@ document.addEventListener("click", (event) => {
     renderPantry();
   }
 
-  const cycle = event.target.closest("[data-cycle-status]");
-  if (cycle) {
-    const item = state.pantry.find((entry) => entry.id === Number(cycle.dataset.cycleStatus));
-    item.status = nextStatus(item.status);
-    state.groceryList = [];
-    saveState();
-    render();
-  }
-
   const remove = event.target.closest("[data-delete-item]");
   if (remove) {
+    const done = state.pantry.find((item) => item.id === Number(remove.dataset.deleteItem));
+    if (done) logEvent("consumption", done);
     state.pantry = state.pantry.filter((item) => item.id !== Number(remove.dataset.deleteItem));
     state.groceryList = [];
     saveState();
@@ -506,6 +507,7 @@ $("#detectedItems").addEventListener("click", (event) => {
 $("#addDetectedBtn").addEventListener("click", () => {
   state.detected.forEach((item) => {
     state.pantry.push({ ...item, id: Date.now() + Math.random() });
+    logEvent("purchase", item);
   });
   state.scanned = false;
   state.groceryList = [];
