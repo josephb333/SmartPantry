@@ -4,7 +4,41 @@ Working notes from taking this from class prototype to real product. Newest firs
 
 ---
 
-## Day 9 — 2026-08-21 — The Harvest
+## Day 11 — 2026-08-25 — The Matrix
+
+**Shipped (`edd4de8`):**
+- Pantry rows: the Status cycle button is gone (prototype vestige);
+  Delete is now **"All done"** — tapping it means "I finished this",
+  not "this was a mistake".
+- Event log in localStorage (`smartpantry_events`, append-only, no UI
+  reads it yet): confirming a receipt writes a `purchase` event per
+  item; All done writes a `consumption` event. Schema: name, category,
+  qty, price, timestamp, type. Verified in console: 2 purchases + 1
+  consumption with correct fields end to end.
+
+**The experiment — OCR preprocessing matrix (not shipped, lab only):**
+14 variants against the Trip 001 receipt (ground truth 14 items, 4 qty
+lines; raw OCR was losing 3 qty lines to double-height absorbed boxes).
+Grayscale/contrast stretch, CLAHE, Otsu, median denoise, deskew, 2x
+upscale, and Tesseract PSM modes 4/6/11, solo + combos, each scored
+items/14, qty/4, garbage. Findings:
+
+- **PSM 6 (single uniform block) is the only variant that found 14/14
+  items with zero garbage.** Segmentation mode mattered more than any
+  pixel treatment — as predicted by the absorbed-box overlay.
+- **up2 + contrast stretch + PSM 4 recovered 2 of the 3 absorbed qty
+  lines (jerky, mango)** and they flowed through the existing
+  quantity-harvest logic unmodified — proof the parser needs zero
+  changes when segmentation improves. Cost: 2 items dropped, banana's
+  qty line lost.
+- 2x upscale alone (PSM 3) is catastrophic: 0/14 items on every
+  upscale-without-PSM4 variant. CLAHE and PSM 11 also scored 0/14.
+- No single variant wins both contests; item detection and qty
+  recovery currently want different pipelines.
+
+**Also learned:** feeding Tesseract a canvas re-encode of the same
+photo scores slightly differently than the file itself (baseline
+13/14 vs the file's 14/14) — one more data point on OCR sensitivity.
 
 Tester feedback batch: quantity lines, junk sub-lines, dirty names.
 
