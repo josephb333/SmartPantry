@@ -27,6 +27,16 @@ cross-checks against its line price). Bonus: the upscaled read gets
 YOGURT SKYR CHERRY's real name where the old pipeline produced
 ER OKYR CHERRY; NAME_MAP gained keys for the new pipeline's reads.
 
+**And the last raw-caps names fell:** NAME_MAP grew editorial entries
+(Beef Jerky (Original Flavor), Espresso, Lettuce (Iceberg), Bananas
+(Organic), Mango Soft & Juicy Snack) and unmapped names now fall
+through to a formulaic `prettifyName` — Title Case, unit-noise tokens
+dropped (EACH, 2 LB), known modifiers lifted into parens (ORG →
+(Organic), SEEDLESS → (Seedless)). Sourdough Bread, Lite String
+Cheese, and Grapes Red (Seedless) come out of the formula with no
+dictionary entry at all. Full scan: 14/14, every name human-readable,
+categories all correct.
+
 **How the method was found — OCR preprocessing matrix, round 1:**
 14 variants against the Trip 001 receipt (ground truth 14 items, 4 qty
 lines; raw OCR was losing 3 qty lines to double-height absorbed boxes).
