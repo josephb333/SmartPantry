@@ -27,6 +27,33 @@ cross-checks against its line price). Bonus: the upscaled read gets
 YOGURT SKYR CHERRY's real name where the old pipeline produced
 ER OKYR CHERRY; NAME_MAP gained keys for the new pipeline's reads.
 
+**Shipped, the nightcap (`a0b14fa`) — the receipt audits itself:** a
+reconciliation tier now runs after every parse, built on the fact that
+a receipt is a ledger with redundant data:
+
+- every harvested count is verified against its own line
+  (count × unit price = line price), and whichever half the arithmetic
+  disproves gets repaired by division
+- items still missing a count get a targeted re-OCR of the strip of
+  paper where their qty line physically sits (found by box geometry),
+  and only the price token is trusted — the count comes from dividing
+  the already-read line price, accepted only when it lands on a clean
+  integer
+- the parse then reconciles globally: unit counts must sum to the
+  printed "Items in Transaction: N", line prices must sum to the
+  printed total; the review screen badge says "reconciled ✓" or,
+  honestly, "21/24 units"
+
+**Result on the Trip 001 photo, twice, identical: 14/14 items, 4/4
+quantities, 24/24 units, $69.36/$69.36 — fully reconciled.** The
+yogurt count that survived 23 preprocessing variants (top-of-receipt
+curl; the crop OCR literally read "RATYAY we eae 0" until the band
+slice was tightened and shrunk — a sliver of the row above poisons a
+single-line read) came back as `4 @ $1.19` via the division path. No
+reshoot required — which is the point: users will never shoot pristine
+flat receipts, so the parser now leans on the receipt's own arithmetic
+instead of photo quality.
+
 **And the last raw-caps names fell:** NAME_MAP grew editorial entries
 (Beef Jerky (Original Flavor), Espresso, Lettuce (Iceberg), Bananas
 (Organic), Mango Soft & Juicy Snack) and unmapped names now fall
