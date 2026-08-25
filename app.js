@@ -173,6 +173,15 @@ function renderGroceryList() {
   `).join("");
 }
 
+function badgeFor(recon) {
+  if (!recon) return "";
+  if (recon.reconciled) return " · reconciled ✓";
+  if (recon.unitsPrinted != null && !recon.unitsMatch) return ` · ${recon.unitsCounted}/${recon.unitsPrinted} units`;
+  if (recon.unitsMatch) return " · units ✓";
+  if (recon.totalMatch) return " · total ✓";
+  return "";
+}
+
 function renderUpload() {
   $("#detectedItems").innerHTML = state.scanned
     ? state.detected.map((item) => `
@@ -186,7 +195,7 @@ function renderUpload() {
         </div>
       `).join("")
     : `<p class="text-secondary">Process a receipt to preview extracted items.</p>`;
-  $("#scanStatus").textContent = state.scanned ? `${state.detected.length} found` : "Ready";  
+  $("#scanStatus").textContent = state.scanned ? `${state.detected.length} found${state.reconBadge || ""}` : "Ready";
   const addBtn = $("#addDetectedBtn");
   const showConfirm = state.scanned && state.detected.length > 0;
   addBtn.style.display = showConfirm ? "" : "none";
@@ -539,13 +548,151 @@ async function preprocessReceipt(file) {
   }
 }
 
-async function recognizeReceipt(file) {
+// must mirror parseReceipt's keep-filter exactly — used to map Tesseract's
+// line boxes onto parsed items by position (guarded by a count check)
+function isItemLine(t) {
+  const line = (t || "").trim();
+  if (line.length <= 2 || JUNK.test(line)) return false;
+  if (QTY_LINE.test(line)) return false;
+  const priceMatch = line.match(/(\d+[.,]\d{2})\s*[A-Z]?\s*$/);
+  if (!priceMatch) return false;
+  if (SUB_LINE_JUNK.test(line)) return false;
+  const name = line.slice(0, priceMatch.index).replace(/[^A-Za-z0-9 %&'-]/g, " ").replace(/\s+/g, " ").trim()
+    .replace(/^\d+\s+/, "").replace(/\s+A$/, "");
+  return name.length >= 2;
+}
+
+const MONEY = /\d+[.,]\d{2}/g;
+const parseMoney = (s) => parseFloat(s.replace(",", "."));
+
+// for items still count-less, find the strip of paper where a qty line would
+// live: the bottom row of an absorbed (double-height) line box, or the gap
+// between the item's box and the next detected line
+function findQtyBands(blocks, items) {
+  const lines = [];
+  (blocks || []).forEach((b) => (b.paragraphs || []).forEach((p) => (p.lines || []).forEach((l) => lines.push(l))));
+  const itemIdx = [];
+  lines.forEach((l, i) => { if (isItemLine(l.text)) itemIdx.push(i); });
+  if (itemIdx.length !== items.length) return []; // mapping unsafe — skip recovery
+  const hs = lines.map((l) => l.bbox.y1 - l.bbox.y0).sort((a, b) => a - b);
+  const med = hs[Math.floor(hs.length / 2)] || 0;
+  const bands = [];
+  itemIdx.forEach((li, k) => {
+    if (items[k].qty !== "1") return;
+    const bb = lines[li].bbox;
+    let y0, y1;
+    if ((bb.y1 - bb.y0) > med * 1.45) {
+      // tight slice: any sliver of the row above poisons the crop OCR
+      y0 = bb.y1 - med * 0.85; y1 = bb.y1 + 4;
+    } else {
+      const next = lines[li + 1];
+      if (!next || next.bbox.y0 - bb.y1 <= med * 0.5) return;
+      y0 = bb.y1 - 4; y1 = next.bbox.y0 + 4;
+    }
+    bands.push({ item: items[k], x: Math.max(bb.x0 - 8, 0), y: y0, w: (bb.x1 - bb.x0) * 0.6, h: y1 - y0 });
+  });
+  return bands;
+}
+
+// the receipt audits itself: count x unit must equal the line price, unit
+// counts must sum to "Items in Transaction: N", line prices must sum to the
+// printed total. Use that redundancy to verify, repair, and recover.
+async function reconcile(items, data, canvas, worker) {
+  const report = { repairs: [], recovered: [] };
+  const rawLines = data.text.split("\n");
+
+  // first transaction line that actually carries a number — the receipt also
+  // prints a digitless "SALE TRANSACTION" header
+  let um = null;
+  for (const l of rawLines) { um = l.match(/transaction\D*?(\d+)/i); if (um) break; }
+  report.unitsPrinted = um ? Number(um[1]) : null;
+
+  const totalCandidates = [];
+  rawLines.forEach((l) => {
+    if (/SUBTOTAL|TAX/i.test(l)) return;
+    if (!/TOTAL|BALANCE|VISA|MASTERCARD|DEBIT|CREDIT|CASH/i.test(l)) return;
+    (l.match(MONEY) || []).forEach((m) => totalCandidates.push(parseMoney(m)));
+  });
+  report.totalPrinted = totalCandidates.length ? totalCandidates : null;
+
+  // line-level: verify each harvested count against its own line price;
+  // repair whichever half (count or unit) the price arithmetic disproves
+  for (const it of items) {
+    const m = String(it.qty).match(/^(\d+) @ \$(\d+\.\d{2})$/);
+    if (!m || !it.price) continue;
+    const c = Number(m[1]), u = parseFloat(m[2]), price = parseFloat(it.price);
+    if (Math.abs(c * u - price) <= 0.02) { it.qtyVerified = true; continue; }
+    const n = Math.round(price / u);
+    if (u >= 0.01 && n >= 1 && n <= 99 && Math.abs(price / u - n) < 0.02) {
+      report.repairs.push(`${it.name}: count ${c} -> ${n} (line price / unit price)`);
+      it.qty = `${n} @ $${u.toFixed(2)}`;
+      it.qtyVerified = true;
+      continue;
+    }
+    const v = price / c;
+    if (c >= 1 && m[2].includes(v.toFixed(2))) {
+      report.repairs.push(`${it.name}: unit $${m[2]} -> $${v.toFixed(2)} (digit noise around true unit)`);
+      it.qty = `${c} @ $${v.toFixed(2)}`;
+      it.qtyVerified = true;
+    }
+  }
+
+  // band re-OCR: crop where a missing qty line would sit, read it as a single
+  // line, keep ONLY price tokens, and let division against the trusted line
+  // price propose the count — accepted only if it lands on a clean integer
+  const bands = findQtyBands(data.blocks, items);
+  if (bands.length) await worker.setParameters({ tessedit_pageseg_mode: "7" });
+  for (const b of bands) {
+    const price = parseFloat(b.item.price);
+    // Tesseract wants modest line heights — the canvas is already 2x
+    // upscaled, so shrink first and step up only if needed
+    for (const scale of [0.6, 1, 1.5]) {
+      const crop = document.createElement("canvas");
+      crop.width = Math.round(b.w * scale);
+      crop.height = Math.round(b.h * scale);
+      const cctx = crop.getContext("2d");
+      cctx.imageSmoothingEnabled = true;
+      cctx.imageSmoothingQuality = "high";
+      cctx.drawImage(canvas, b.x, b.y, b.w, b.h, 0, 0, crop.width, crop.height);
+      const { data: cd } = await worker.recognize(crop);
+      let hit = false;
+      for (const tok of ((cd.text || "").match(MONEY) || [])) {
+        const u = parseMoney(tok);
+        if (u < 0.01) continue;
+        const n = Math.round(price / u);
+        if (n >= 2 && n <= 99 && Math.abs(price / u - n) < 0.02) {
+          b.item.qty = `${n} @ $${u.toFixed(2)}`;
+          b.item.qtyVerified = true;
+          report.recovered.push(`${b.item.name}: ${b.item.qty} (band re-OCR @${scale}x, count from price division)`);
+          hit = true;
+          break;
+        }
+      }
+      if (hit) break;
+    }
+  }
+
+  report.unitsCounted = items.reduce((s, it) => {
+    const m = String(it.qty).match(/^(\d+) @/);
+    return s + (m ? Number(m[1]) : 1);
+  }, 0);
+  report.unitsMatch = report.unitsPrinted != null && report.unitsCounted === report.unitsPrinted;
+  const pricesSum = items.reduce((s, it) => s + (parseFloat(it.price) || 0), 0);
+  report.pricesSum = +pricesSum.toFixed(2);
+  report.totalMatch = (report.totalPrinted || []).some((t) => Math.abs(t - pricesSum) <= 0.02);
+  report.reconciled = report.unitsMatch && report.totalMatch;
+  return report;
+}
+
+async function scanReceipt(file) {
   const canvas = await preprocessReceipt(file);
   const worker = await Tesseract.createWorker("eng");
   try {
     await worker.setParameters({ tessedit_pageseg_mode: "6" });
-    const { data } = await worker.recognize(canvas);
-    return data.text;
+    const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
+    const items = parseReceipt(data.text);
+    const reconciliation = items.length ? await reconcile(items, data, canvas, worker) : null;
+    return { text: data.text, items, reconciliation };
   } finally {
     await worker.terminate();
   }
@@ -570,9 +717,11 @@ $("#scanReceiptBtn").addEventListener("click", async () => {
   if (!receiptFile) { toast("Choose a receipt photo first"); return; }
   $("#scanStatus").textContent = "Reading...";
   try {
-    const text = await recognizeReceipt(receiptFile);
+    const { text, items, reconciliation } = await scanReceipt(receiptFile);
     window.lastReceiptText = text;
-    const items = parseReceipt(text);
+    window.lastReconciliation = reconciliation;
+    if (reconciliation) console.log("reconciliation:", reconciliation);
+    state.reconBadge = badgeFor(reconciliation);
     if (!items.length) {
       $("#scanStatus").textContent = "No items found — try a clearer photo";
       toast("Nothing parsed");
