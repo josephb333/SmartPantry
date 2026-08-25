@@ -211,9 +211,11 @@ function toast(message) {
 // abbrev → real name; keys are actual OCR output strings from real runs
 const NAME_MAP = {
   "ER OKYR CHERRY": "Cherry Yogurt",
+  "YOGURT SKYR CHERRY": "Cherry Yogurt",
   "VEGGIE STICKS POTATO SNA": "Veggie Sticks Potato Snacks",
   "SLICED TURKEY BREAST ROA": "Sliced Turkey Breast",
   "TORTILLAS ORG SPROUTED W": "Organic Sprouted Wheat Tortillas",
+  "TORTILLAS ORG SRROUTED": "Organic Sprouted Wheat Tortillas",
   "A-APPLE BAG SUGARBEE": "SugarBee Apples 2lb Bag",
   "OATMEAL INSTANT MAPLE BR": "Instant Oatmeal Maple Brown Sugar"
 };
@@ -459,6 +461,67 @@ $("#quickAddForm").addEventListener("submit", (event) => {
   renderGroceryList();
 });
 
+// OCR pipeline picked by the Day 11 preprocessing matrix: 2x upscale +
+// grayscale + contrast stretch + PSM 6. Upscale is capped near the proven
+// ~13MP envelope — larger canvases fail on mobile Safari, and huge phone
+// photos already have big glyphs.
+const MAX_OCR_PIXELS = 13e6;
+
+async function preprocessReceipt(file) {
+  const img = new Image();
+  img.src = URL.createObjectURL(file);
+  try {
+    await new Promise((res, rej) => {
+      img.onload = res;
+      img.onerror = () => rej(new Error("could not load receipt image"));
+    });
+    const factor = Math.max(1, Math.min(2, Math.sqrt(MAX_OCR_PIXELS / (img.naturalWidth * img.naturalHeight))));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.naturalWidth * factor);
+    canvas.height = Math.round(img.naturalHeight * factor);
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = imageData.data;
+    const hist = new Array(256).fill(0);
+    for (let i = 0; i < d.length; i += 4) {
+      const v = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
+      d[i] = d[i + 1] = d[i + 2] = v;
+      hist[v]++;
+    }
+    // percentile 2-98 contrast stretch
+    const n = canvas.width * canvas.height;
+    let lo = 0, hi = 255, cum = 0;
+    for (let i = 0; i < 256; i++) { cum += hist[i]; if (cum >= n * 0.02) { lo = i; break; } }
+    cum = 0;
+    for (let i = 255; i >= 0; i--) { cum += hist[i]; if (cum >= n * 0.02) { hi = i; break; } }
+    const range = Math.max(hi - lo, 1);
+    for (let i = 0; i < d.length; i += 4) {
+      const v = Math.max(0, Math.min(255, Math.round((d[i] - lo) * 255 / range)));
+      d[i] = d[i + 1] = d[i + 2] = v;
+    }
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
+  } finally {
+    URL.revokeObjectURL(img.src);
+  }
+}
+
+async function recognizeReceipt(file) {
+  const canvas = await preprocessReceipt(file);
+  const worker = await Tesseract.createWorker("eng");
+  try {
+    await worker.setParameters({ tessedit_pageseg_mode: "6" });
+    const { data } = await worker.recognize(canvas);
+    return data.text;
+  } finally {
+    await worker.terminate();
+  }
+}
+
 let receiptFile = null;
 
 $("#receiptInput").addEventListener("change", (event) => {
@@ -478,9 +541,9 @@ $("#scanReceiptBtn").addEventListener("click", async () => {
   if (!receiptFile) { toast("Choose a receipt photo first"); return; }
   $("#scanStatus").textContent = "Reading...";
   try {
-    const result = await Tesseract.recognize(receiptFile, "eng");
-    window.lastReceiptText = result.data.text;
-    const items = parseReceipt(result.data.text);
+    const text = await recognizeReceipt(receiptFile);
+    window.lastReceiptText = text;
+    const items = parseReceipt(text);
     if (!items.length) {
       $("#scanStatus").textContent = "No items found — try a clearer photo";
       toast("Nothing parsed");
