@@ -16,7 +16,18 @@ Working notes from taking this from class prototype to real product. Newest firs
   qty, price, timestamp, type. Verified in console: 2 purchases + 1
   consumption with correct fields end to end.
 
-**The experiment — OCR preprocessing matrix (not shipped, lab only):**
+**Shipped later that night (`50db93f`):** the scan path now preprocesses
+before OCR — 2x upscale (capped near 13MP so mobile canvases survive) +
+grayscale + percentile contrast stretch — and runs Tesseract in PSM 6
+(single uniform block) instead of default auto-segmentation. First
+real-app runs on the Trip 001 receipt, twice, identical: **14/14 items,
+zero junk, three quantity lines harvested into the review screen**
+(jerky 2 @ $5.99, mango 2 @ $2.49, banana 6 @ $0.29 — every unit price
+cross-checks against its line price). Bonus: the upscaled read gets
+YOGURT SKYR CHERRY's real name where the old pipeline produced
+ER OKYR CHERRY; NAME_MAP gained keys for the new pipeline's reads.
+
+**How the method was found — OCR preprocessing matrix, round 1:**
 14 variants against the Trip 001 receipt (ground truth 14 items, 4 qty
 lines; raw OCR was losing 3 qty lines to double-height absorbed boxes).
 Grayscale/contrast stretch, CLAHE, Otsu, median denoise, deskew, 2x
@@ -33,8 +44,19 @@ items/14, qty/4, garbage. Findings:
   qty line lost.
 - 2x upscale alone (PSM 3) is catastrophic: 0/14 items on every
   upscale-without-PSM4 variant. CLAHE and PSM 11 also scored 0/14.
-- No single variant wins both contests; item detection and qty
-  recovery currently want different pipelines.
+- Round 1 verdict: no single variant won both contests — which set up
+  round 2.
+
+**Round 2 (PSM6 combos + composites) found the unlock:** 2x upscale is
+only catastrophic under auto-segmentation; under PSM 6 it's the win —
+up2+stretch+PSM6 scored 14/14 items, 3/4 qty, 0 garbage in a single
+~7s pass. It beat both two-pass composites on data quality: the
+merge composite grafted mango a mangled unit price ($882.49), and
+per-line crop-zoom re-OCR merged "@" into count digits (4 @ → 18).
+PSM 6 repeat runs scored identically. Yogurt's "4 @ $1.19" survived
+all 23 variants unrecovered — it lives in the top-of-receipt curl, same
+region that mangles the name line. The photo, not the code, is that
+ceiling.
 
 **Also learned:** feeding Tesseract a canvas re-encode of the same
 photo scores slightly differently than the file itself (baseline
