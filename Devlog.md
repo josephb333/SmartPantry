@@ -4,6 +4,47 @@ Working notes from taking this from class prototype to real product. Newest firs
 
 ---
 
+## Day 13 — 2026-08-26 — The Cleanup
+
+UI pass: the prototype's fake furniture is gone, and empty is now a
+designed state instead of an accident.
+
+**Shipped (`01de43b`):**
+- Demo seed data deleted — no more Whole Milk / Greek Yogurt / phantom
+  suggestions. The app starts truly empty.
+- Home: when nothing needs attention, the section collapses to a
+  single module — **"All clear."** in green, "Nothing needs your
+  attention." under it. No empty box. "View all" hides with it.
+- Pantry empty state: "Your pantry is empty. / Scan a receipt and it
+  stocks itself." with a Scan CTA straight to the upload view. Search
+  and filter chips hide when there's nothing to search or filter.
+- List page rebuilt to its standardized default: header **"Your
+  list."**, a live `+ Add an item...` input from first load (type +
+  enter adds, × removes), and a muted three-line explainer under the
+  empty list ("Add by hand — or scan a receipt. / Every scan teaches
+  the pantry what you buy. / The more it knows, the less you type.").
+  The explainer yields to real items and returns when the list
+  empties; Create List and the Suggested section only render when
+  they have something to say. Hand-added rows drop the placeholder-era
+  "Manual list item" / "Manual entry" strings.
+
+**Shipped (`d350eb7`):**
+- Every pantry row now carries − / + buttons on the left. Taps adjust
+  the count by 1 in place — count strings keep their descriptors
+  ("4 @ $1.19" steps to "5 @ $1.19", "12 count" to "13 count") — and
+  − at qty 1 removes the item, confirm-free.
+- Each tap appends `{ item, delta, timestamp }` to a new
+  localStorage log (`smartpantry_adjustments`). No UI reads it yet —
+  groundwork. Verified: 7 taps, 7 events, exact schema, removal tap
+  included.
+- Populated pantry carries a permanent whisper line: "+ / − to adjust
+  by hand. The pantry keeps count."
+
+**Console-verified flows:** fresh-profile boot shows all three empty
+states; list add/remove toggles the explainer both directions; pantry
+CTA lands on the upload view; +/− round-trips a scanned qty string
+without touching its unit price.
+
 ## Day 11 — 2026-08-25 — The Matrix
 
 **Shipped (`edd4de8`):**
