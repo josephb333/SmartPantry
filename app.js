@@ -4,20 +4,9 @@ const defaultState = {
   statusFilter: null,
   search: "",
   scanned: false,
-  pantry: [
-    { id: 1, name: "Whole Milk", category: "Dairy", qty: "1 carton", status: "Running Low" },
-    { id: 2, name: "Large Eggs", category: "Dairy", qty: "12 count", status: "In Stock" },
-    { id: 3, name: "Greek Yogurt", category: "Dairy", qty: "2 cups", status: "Running Low" },
-    { id: 4, name: "Sourdough Bread", category: "Bakery", qty: "0 loaves", status: "Buy Now" },
-    { id: 5, name: "Olive Oil", category: "Pantry", qty: "1/4 bottle", status: "Buy Soon" },
-    { id: 6, name: "Pasta", category: "Pantry", qty: "2 boxes", status: "In Stock" },
-    { id: 7, name: "Bananas", category: "Produce", qty: "2 left", status: "Buy Soon" }
-  ],
+  pantry: [],
   groceryList: [],
-  suggestions: [
-    { id: "s1", name: "Butter", reason: "Usually bought every 2 weeks" },
-    { id: "s2", name: "Chicken Breast", reason: "Roommate dinner pattern" }
-  ],
+  suggestions: [],
   detected: []
 };
 
@@ -48,6 +37,7 @@ function saveState() {
 
 function resetState() {
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(EVENT_LOG_KEY);
   location.reload();
 }
 
@@ -109,7 +99,9 @@ function renderItemRow(item, options = {}) {
     ? `<div class="row-actions">
         <button class="mini-button" type="button" data-delete-item="${item.id}">All done</button>
       </div>`
-    : statusBadge(item.status || options.badge || "");
+    : options.removable
+      ? `<button class="mini-button remove-button" type="button" data-remove-list="${item.id}" aria-label="Remove from list">×</button>`
+      : statusBadge(item.status || options.badge || "");
 
   return `
     <div class="item-row ${item.done ? "done" : ""}">
@@ -128,13 +120,29 @@ function renderHome() {
   $("#buyNowCount").textContent = buyNow.length;
   $("#buySoonCount").textContent = state.pantry.filter((item) => item.status === "Buy Soon").length;
   $("#stockedCount").textContent = state.pantry.filter((item) => item.status === "In Stock").length;
-  $("#attentionItems").innerHTML = buyNow.concat(state.pantry.filter((item) => item.status === "Buy Soon"))
-    .slice(0, 5)
-    .map((item) => renderItemRow(item))
-    .join("");
+  const attention = buyNow.concat(state.pantry.filter((item) => item.status === "Buy Soon")).slice(0, 5);
+  $("#attentionViewAll").style.display = attention.length ? "" : "none";
+  $("#attentionItems").innerHTML = attention.length
+    ? attention.map((item) => renderItemRow(item)).join("")
+    : `<div class="all-clear">
+        <p class="all-clear-title">All clear.</p>
+        <p class="all-clear-sub">Nothing needs your attention.</p>
+      </div>`;
 }
 
 function renderPantry() {
+  const hasItems = state.pantry.length > 0;
+  $("#pantrySearch").style.display = hasItems ? "" : "none";
+  $("#pantryFilters").style.display = hasItems ? "" : "none";
+  if (!hasItems) {
+    $("#pantryItems").innerHTML = `
+      <div class="empty-state">
+        <p class="empty-title">Your pantry is empty.</p>
+        <p class="empty-sub">Scan a receipt and it stocks itself.</p>
+        <button class="primary-action compact" type="button" data-view="upload">Scan a receipt</button>
+      </div>`;
+    return;
+  }
   const query = state.search.trim().toLowerCase();
   const visible = state.pantry.filter((item) => {
     const matchesCategory = state.category === "All" || item.category === state.category;
@@ -160,7 +168,10 @@ function ensureGroceryList() {
 
 function renderGroceryList() {
   ensureGroceryList();
-  $("#groceryItems").innerHTML = state.groceryList.map((item) => renderItemRow(item, { checkbox: true })).join("");
+  $("#groceryItems").innerHTML = state.groceryList.map((item) => renderItemRow(item, { checkbox: true, removable: true })).join("");
+  $("#listExplainer").style.display = state.groceryList.length ? "none" : "";
+  $("#createListBtn").style.display = state.groceryList.length ? "" : "none";
+  $("#suggestedSection").style.display = state.suggestions.length ? "" : "none";
   $("#suggestedItems").innerHTML = state.suggestions.map((item) => `
     <div class="item-row">
       <span></span>
@@ -446,6 +457,13 @@ document.addEventListener("click", (event) => {
     render();
   }
 
+  const removeList = event.target.closest("[data-remove-list]");
+  if (removeList) {
+    state.groceryList = state.groceryList.filter((item) => String(item.id) !== removeList.dataset.removeList);
+    saveState();
+    renderGroceryList();
+  }
+
   const suggestion = event.target.closest("[data-add-suggestion]");
   if (suggestion) {
     const item = state.suggestions.find((entry) => entry.id === suggestion.dataset.addSuggestion);
@@ -475,7 +493,7 @@ $("#addItemForm").addEventListener("submit", (event) => {
     id: Date.now(),
     name: $("#newItemName").value,
     category: $("#newItemCategory").value,
-    qty: "Manual entry",
+    qty: "1",
     status: $("#newItemStatus").value
   });
   event.target.reset();
@@ -487,10 +505,12 @@ $("#addItemForm").addEventListener("submit", (event) => {
 
 $("#quickAddForm").addEventListener("submit", (event) => {
   event.preventDefault();
+  const name = $("#extraItemName").value.trim();
+  if (!name) return;
   state.groceryList.push({
     id: Date.now(),
-    name: $("#extraItemName").value,
-    qty: "Manual list item",
+    name,
+    qty: "",
     status: "Buy Now",
     done: false
   });
@@ -765,7 +785,7 @@ $("#createListBtn").addEventListener("click", () => {
 });
 
 $("#resetBtn").addEventListener("click", () => {
-  if (confirm("Reset Smart Pantry to demo data?")) resetState();
+  if (confirm("Reset SmartPantry data?")) resetState();
 });
 
 render();

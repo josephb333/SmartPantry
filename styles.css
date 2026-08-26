@@ -325,6 +325,49 @@ h2 { margin-bottom: 0; font-size: 1rem; }
   }
 }
 
+/* Empty states & list defaults */
+.all-clear { padding: 14px 2px; }
+
+.all-clear-title {
+  margin: 0 0 3px;
+  color: var(--green);
+  font-weight: 800;
+  font-size: 1.02rem;
+}
+
+.all-clear-sub { margin: 0; color: var(--muted); font-size: .88rem; }
+
+.empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 30px 14px;
+  text-align: center;
+}
+
+.empty-title { margin: 0; font-weight: 800; }
+
+.empty-sub { margin: 0 0 12px; color: var(--muted); font-size: .9rem; }
+
+.empty-state .primary-action { width: auto; padding: 12px 22px; }
+
+.list-add { margin-bottom: 10px; }
+
+.list-explainer {
+  padding: 12px 4px 0;
+  color: var(--muted);
+  font-size: .85rem;
+}
+
+.list-explainer p { margin: 0 0 3px; }
+
+.remove-button {
+  min-width: 30px;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+
 /* Review screen affordances */
 .reject-btn {
   background: #C4444F;          /* soft red — muted, not alarm-red */

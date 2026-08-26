@@ -52,7 +52,7 @@
         <section class="section-block">
           <div class="section-heading">
             <h2>Needs Attention</h2>
-            <button class="text-button" type="button" data-view="pantry">View all</button>
+            <button id="attentionViewAll" class="text-button" type="button" data-view="pantry">View all</button>
           </div>
           <div id="attentionItems" class="item-list"></div>
         </section>
@@ -86,11 +86,11 @@
           </section>
 
       <section id="pantryView" class="view">
-        <label class="search-box">
+        <label id="pantrySearch" class="search-box">
           <span>Search</span>
           <input id="searchInput" type="search" class="form-control" placeholder="Search items">
         </label>
-        <div class="filter-row" role="group" aria-label="Pantry filters">
+        <div id="pantryFilters" class="filter-row" role="group" aria-label="Pantry filters">
           <button class="filter-chip active" type="button" data-category="All">All</button>
           <button class="filter-chip" type="button" data-category="Dairy">Dairy</button>
           <button class="filter-chip" type="button" data-category="Bakery">Bakery</button>
@@ -124,21 +124,20 @@
       <section id="listView" class="view">
         <section class="section-block">
           <div class="section-heading">
-            <h2>Auto Generated</h2>
-            <span class="status-pill neutral">From pantry data</span>
+            <h2>Your list.</h2>
           </div>
+          <form id="quickAddForm" class="list-add">
+            <input id="extraItemName" class="form-control" required placeholder="+ Add an item...">
+          </form>
           <div id="groceryItems" class="item-list check-list"></div>
+          <div id="listExplainer" class="list-explainer">
+            <p>Add by hand — or scan a receipt.</p>
+            <p>Every scan teaches the pantry what you buy.</p>
+            <p>The more it knows, the less you type.</p>
+          </div>
         </section>
 
-        <form id="quickAddForm" class="add-form">
-          <h2>Add Extra Item</h2>
-          <div class="input-group">
-            <input id="extraItemName" class="form-control" required placeholder="Snacks, drinks, etc.">
-            <button class="btn btn-dark" type="submit">Add</button>
-          </div>
-        </form>
-
-        <section class="section-block">
+        <section id="suggestedSection" class="section-block">
           <div class="section-heading">
             <h2>Suggested</h2>
             <span class="status-pill soon">Based on habits</span>
