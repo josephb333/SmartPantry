@@ -75,15 +75,17 @@
         <section class="section-block">
           <div class="section-heading">
             <h2>Detected Items</h2>
-            <span id="scanStatus" class="status-pill neutral">Ready</span>
+            <span id="scanStatus" class="status-pill stocked">Ready</span>
           </div>
-          <div id="detectedItems" class="item-list"></div>
-          <button id="addDetectedBtn" class="mini-button" type="button">
-          <span class="cta-title">Everything look good?</span>
-          <span class="cta-sub">Add detected items to pantry</span>
-          </button>
-          </section>
-          </section>
+          <div class="gray-box">
+            <div id="detectedItems" class="item-list"></div>
+            <button id="addDetectedBtn" class="mini-button" type="button">
+              <span class="cta-title">Everything look good?</span>
+              <span class="cta-sub">Add detected items to pantry</span>
+            </button>
+          </div>
+        </section>
+      </section>
 
       <section id="pantryView" class="view">
         <label id="pantrySearch" class="search-box">
@@ -104,11 +106,17 @@
           <input id="newItemName" class="form-control" required placeholder="Item name">
           <div class="form-grid">
             <select id="newItemCategory" class="form-select">
-              <option>Dairy</option>
-              <option>Bakery</option>
-              <option>Pantry</option>
               <option>Produce</option>
+              <option>Dairy</option>
               <option>Protein</option>
+              <option>Bakery</option>
+              <option>Frozen</option>
+              <option>Breakfast</option>
+              <option>Snacks</option>
+              <option>Beverages</option>
+              <option>Pantry</option>
+              <option>Household</option>
+              <option>Personal Care</option>
             </select>
             <select id="newItemStatus" class="form-select">
               <option>In Stock</option>
@@ -130,7 +138,7 @@
             <input id="extraItemName" class="form-control" required placeholder="+ Add an item...">
           </form>
           <div id="groceryItems" class="item-list check-list"></div>
-          <div id="listExplainer" class="list-explainer">
+          <div id="listExplainer" class="list-explainer gray-box">
             <p>Add by hand — or scan a receipt.</p>
             <p>Every scan teaches the pantry what you buy.</p>
             <p>The more it knows, the less you type.</p>

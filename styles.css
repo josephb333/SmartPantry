@@ -326,16 +326,25 @@ h2 { margin-bottom: 0; font-size: 1rem; }
 }
 
 /* Empty states & list defaults */
-.all-clear { padding: 14px 2px; }
+.gray-box {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f9fafb;
+  padding: 14px;
+}
+
+.gray-box > :last-child { margin-bottom: 0; }
+
+#detectedItems .text-secondary { margin: 0; }
 
 .all-clear-title {
   margin: 0 0 3px;
   color: var(--green);
   font-weight: 800;
-  font-size: 1.02rem;
+  font-size: 1.15rem;
 }
 
-.all-clear-sub { margin: 0; color: var(--muted); font-size: .88rem; }
+.all-clear-sub { margin: 0; color: var(--muted); font-size: 1rem; }
 
 .empty-state {
   display: grid;
@@ -345,21 +354,28 @@ h2 { margin-bottom: 0; font-size: 1rem; }
   text-align: center;
 }
 
-.empty-title { margin: 0; font-weight: 800; }
+.empty-title { margin: 0; font-weight: 800; font-size: 1.15rem; }
 
-.empty-sub { margin: 0 0 12px; color: var(--muted); font-size: .9rem; }
+.empty-sub { margin: 0 0 12px; color: var(--muted); font-size: 1rem; }
 
 .empty-state .primary-action { width: auto; padding: 12px 22px; }
 
 .list-add { margin-bottom: 10px; }
 
 .list-explainer {
-  padding: 12px 4px 0;
   color: var(--muted);
-  font-size: .85rem;
+  font-size: 1.1rem;
+  line-height: 1.45;
 }
 
-.list-explainer p { margin: 0 0 3px; }
+.list-explainer p { margin: 0 0 4px; }
+
+.list-explainer p:first-child {
+  margin-bottom: 6px;
+  color: var(--ink);
+  font-weight: 800;
+  font-size: 1.15rem;
+}
 
 .remove-button {
   min-width: 30px;
@@ -388,7 +404,7 @@ h2 { margin-bottom: 0; font-size: 1rem; }
 .whisper {
   margin: 0 0 4px;
   color: var(--muted);
-  font-size: .78rem;
+  font-size: .9rem;
 }
 
 /* Review screen affordances */
