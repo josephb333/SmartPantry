@@ -38,10 +38,43 @@ function saveState() {
 function resetState() {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(EVENT_LOG_KEY);
+  localStorage.removeItem(ADJUST_LOG_KEY);
   location.reload();
 }
 
 const EVENT_LOG_KEY = "smartpantry_events";
+const ADJUST_LOG_KEY = "smartpantry_adjustments";
+
+// append-only +/- tap history; no UI reads it yet
+function logAdjustment(item, delta) {
+  try {
+    const log = JSON.parse(localStorage.getItem(ADJUST_LOG_KEY)) || [];
+    log.push({ item, delta, timestamp: new Date().toISOString() });
+    localStorage.setItem(ADJUST_LOG_KEY, JSON.stringify(log));
+  } catch (e) { /* the log must never break the app */ }
+}
+
+// pantry qty strings keep their descriptor ("4 @ $1.19", "12 count") — the
+// leading integer is the adjustable count; a string without one counts as 1
+const qtyCount = (item) => {
+  const m = String(item.qty).match(/^\d+/);
+  return m ? Number(m[0]) : 1;
+};
+
+function adjustQty(item, delta) {
+  const next = qtyCount(item) + delta;
+  if (next <= 0) {
+    state.pantry = state.pantry.filter((p) => p.id !== item.id);
+    state.groceryList = [];
+  } else {
+    item.qty = /^\d+/.test(String(item.qty))
+      ? String(item.qty).replace(/^\d+/, String(next))
+      : String(next);
+  }
+  logAdjustment(item.name, delta);
+  saveState();
+  render();
+}
 
 // append-only purchase/consumption history; no UI reads it yet
 function logEvent(type, item) {
@@ -94,7 +127,12 @@ function statusBadge(status) {
 function renderItemRow(item, options = {}) {
   const check = options.checkbox
     ? `<input class="form-check-input" type="checkbox" ${item.done ? "checked" : ""} data-toggle-list="${item.id}">`
-    : `<span aria-hidden="true">${options.dot || ""}</span>`;
+    : options.pantryActions
+      ? `<div class="qty-adjust">
+          <button class="qty-btn" type="button" data-qty-adjust="${item.id}" data-delta="-1" aria-label="Decrease quantity">−</button>
+          <button class="qty-btn" type="button" data-qty-adjust="${item.id}" data-delta="1" aria-label="Increase quantity">+</button>
+        </div>`
+      : `<span aria-hidden="true">${options.dot || ""}</span>`;
   const actions = options.pantryActions
     ? `<div class="row-actions">
         <button class="mini-button" type="button" data-delete-item="${item.id}">All done</button>
@@ -151,12 +189,13 @@ function renderPantry() {
     return matchesCategory && matchesStatus && matchesSearch;
   });
   const groups = [...new Set(visible.map((item) => item.category))];
-  $("#pantryItems").innerHTML = groups.map((category) => `
+  const groupHtml = groups.map((category) => `
     <section>
       <h3 class="category-title">${category}</h3>
       ${visible.filter((item) => item.category === category).map((item) => renderItemRow(item, { pantryActions: true })).join("")}
     </section>
   `).join("") || `<p class="text-secondary">No matching pantry items.</p>`;
+  $("#pantryItems").innerHTML = `<p class="whisper">+ / − to adjust by hand. The pantry keeps count.</p>` + groupHtml;
 }
 
 function ensureGroceryList() {
@@ -445,6 +484,12 @@ document.addEventListener("click", (event) => {
     state.statusFilter = null;
     $$(".filter-chip").forEach((button) => button.classList.toggle("active", button === filter));
     renderPantry();
+  }
+
+  const adjust = event.target.closest("[data-qty-adjust]");
+  if (adjust) {
+    const item = state.pantry.find((p) => p.id === Number(adjust.dataset.qtyAdjust));
+    if (item) adjustQty(item, Number(adjust.dataset.delta));
   }
 
   const remove = event.target.closest("[data-delete-item]");

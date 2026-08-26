@@ -368,6 +368,29 @@ h2 { margin-bottom: 0; font-size: 1rem; }
   line-height: 1;
 }
 
+.qty-adjust { display: flex; gap: 5px; }
+
+.qty-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0;
+}
+
+.qty-btn:active { background: #dcfae6; border-color: var(--green); }
+
+.whisper {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: .78rem;
+}
+
 /* Review screen affordances */
 .reject-btn {
   background: #C4444F;          /* soft red — muted, not alarm-red */
