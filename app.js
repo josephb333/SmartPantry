@@ -772,18 +772,19 @@ async function scanReceipt(file) {
 
 let receiptFile = null;
 
-$("#receiptInput").addEventListener("change", (event) => {
-  receiptFile = event.target.files[0] || null;
-  const preview = $("#receiptPreview");
-  if (receiptFile) {
-    preview.src = URL.createObjectURL(receiptFile);
-    preview.style.display = "block";
-    $("#previewLabel").style.display = "none";
-  } else {
-    preview.style.display = "none";
-    $("#previewLabel").style.display = "";
-  }
-});
+// camera and library inputs feed the same preview; the thumbnail is the
+// confirmation, so no filename is ever shown
+function bindReceiptSource(selector) {
+  $(selector).addEventListener("change", (event) => {
+    receiptFile = event.target.files[0] || null;
+    if (receiptFile) $("#receiptPreview").src = URL.createObjectURL(receiptFile);
+    $("#receiptCard").classList.toggle("has-photo", Boolean(receiptFile));
+    $("#scanReceiptBtn").disabled = !receiptFile;
+  });
+}
+
+bindReceiptSource("#receiptCameraInput");
+bindReceiptSource("#receiptLibraryInput");
 
 $("#scanReceiptBtn").addEventListener("click", async () => {
   if (!receiptFile) { toast("Choose a receipt photo first"); return; }

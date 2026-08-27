@@ -60,16 +60,27 @@
 
       <section id="uploadView" class="view">
         <div class="scan-panel">
-          <div class="receipt-card">
-            <div class="receipt-line wide"></div>
-            <div class="receipt-line"></div>
-            <div class="receipt-line short"></div>
-            <div class="receipt-dash"></div>
-            <input id="receiptInput" type="file" accept="image/*" class="form-control">
-            <img id="receiptPreview" alt="Receipt preview" style="max-width:100%; display:none; border-radius:8px;">
-            <p id="previewLabel">Receipt image preview</p>
+          <div id="receiptCard" class="receipt-card">
+            <div class="receipt-empty">
+              <div class="receipt-line wide"></div>
+              <div class="receipt-line"></div>
+              <div class="receipt-line short"></div>
+              <div class="receipt-dash"></div>
+              <p class="receipt-cta">Add receipt photo</p>
+            </div>
+            <img id="receiptPreview" alt="Receipt preview">
+            <div class="receipt-sources">
+              <label class="source-button primary">
+                <input id="receiptCameraInput" type="file" accept="image/*" capture="environment" class="sr-only-input">
+                Take photo
+              </label>
+              <label class="source-button">
+                <input id="receiptLibraryInput" type="file" accept="image/*" class="sr-only-input">
+                Choose from library
+              </label>
+            </div>
           </div>
-          <button id="scanReceiptBtn" class="primary-action compact" type="button">Process Receipt</button>
+          <button id="scanReceiptBtn" class="primary-action compact" type="button" disabled>Scan receipt</button>
         </div>
 
         <section class="section-block">
