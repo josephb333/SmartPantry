@@ -58,7 +58,7 @@ coverage/
 .nyc_output/
 # local test assets
 test-harness.html
-tj-receipt.jpg
+tj-receipt*.jpg
 .claude/
 CLAUDE.local.md
 ocr-lab*.html
