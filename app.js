@@ -1,12 +1,12 @@
 const defaultState = {
   view: "home",
   category: "All",
-  statusFilter: null,
+  tagFilter: null,
   search: "",
   scanned: false,
   pantry: [],
   groceryList: [],
-  suggestions: [],
+  suggestions: [], // derived each render, never persisted
   detected: []
 };
 
@@ -19,7 +19,6 @@ function loadState() {
     if (saved) {
       fresh.pantry = saved.pantry ?? fresh.pantry;
       fresh.groceryList = saved.groceryList ?? fresh.groceryList;
-      fresh.suggestions = saved.suggestions ?? fresh.suggestions;
     }
   } catch (e) { /* corrupted data, fall back to defaults */ }
   return fresh;
@@ -30,20 +29,25 @@ const state = loadState();
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify({
     pantry: state.pantry,
-    groceryList: state.groceryList,
-    suggestions: state.suggestions
+    groceryList: state.groceryList
   }));
 }
 
 function resetState() {
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(EVENT_LOG_KEY);
-  localStorage.removeItem(ADJUST_LOG_KEY);
+  [STORAGE_KEY, EVENT_LOG_KEY, ADJUST_LOG_KEY, HISTORY_KEY, DISMISS_KEY, SUGGEST_LOG_KEY]
+    .forEach((key) => localStorage.removeItem(key));
   location.reload();
 }
 
 const EVENT_LOG_KEY = "smartpantry_events";
 const ADJUST_LOG_KEY = "smartpantry_adjustments";
+const HISTORY_KEY = "smartpantry_history";
+const DISMISS_KEY = "smartpantry_dismissed";
+const SUGGEST_LOG_KEY = "smartpantry_suggestion_log";
+
+const readStore = (key) => { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch (e) { return {}; } };
+const readList = (key) => { try { const v = JSON.parse(localStorage.getItem(key)); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+const writeStore = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { /* storage must never break the app */ } };
 
 // append-only +/- tap history; no UI reads it yet
 function logAdjustment(item, delta) {
@@ -99,11 +103,50 @@ const pageTitles = {
   list: "Grocery List"
 };
 
-const statusClass = {
-  "Buy Now": "urgent",
-  "Running Low": "urgent",
-  "Buy Soon": "soon",
-  "In Stock": "stocked"
+// tag taxonomy — the interface between the learning system and the user.
+// Three actionable states render as homescreen prompts whose accept/dismiss
+// answers feed the suggestion log; three quiet context states live only on
+// pantry rows. A healthy item carries no tag at all.
+const TAG_DEF = {
+  expired: { label: "Expired", cls: "urgent", actionable: true },
+  expiring: { label: "Expiring", cls: "soon", actionable: true },
+  low: { label: "Low", cls: "low", actionable: true },
+  staple: { label: "Staple", cls: "staple" },
+  priceUp: { label: "Price ↑", cls: "price-up" },
+  noData: { label: "No shelf data", cls: "muted" }
+};
+
+const DAY_MS = 86400000;
+
+function tagsFor(item) {
+  const tags = [];
+  if (item.shelf && item.shelf.expiresAt) {
+    const rem = Math.ceil((new Date(item.shelf.expiresAt) - Date.now()) / DAY_MS);
+    // expiring window: 20% of the estimated span or 2 days, whichever is longer
+    const windowDays = Math.max(2, Math.round(item.shelf.midDays * 0.2));
+    if (rem < 0) tags.push({ key: "expired", reason: `est. expired ${-rem}d ago` });
+    else if (rem <= windowDays) tags.push({ key: "expiring", reason: rem === 0 ? "est. expires today" : `est. ~${rem}d left` });
+  } else {
+    tags.push({ key: "noData", reason: "no shelf-life match — estimate unavailable" });
+  }
+  const learn = learningFor(nameStem(item.name));
+  if (learn.trips >= 2) {
+    // learning tier renders only on repeat evidence (>= 2 trips)
+    if (learn.low) tags.push({ key: "low", reason: `bought every ~${learn.cadence}d, last ${learn.daysSince}d ago` });
+    if (learn.staple) tags.push({ key: "staple", reason: `on ${learn.trips} of your trips` });
+    if (learn.priceUp) tags.push({ key: "priceUp", reason: `$${learn.prevUnit.toFixed(2)} → $${learn.lastUnit.toFixed(2)} per unit` });
+  }
+  return tags;
+}
+
+const tagPills = (tags) => tags
+  .map((t) => `<span class="status-pill ${TAG_DEF[t.key].cls}" title="${t.reason || ""}">${TAG_DEF[t.key].label}</span>`)
+  .join(" ");
+
+const fmtDay = (iso) => {
+  const d = new Date(iso);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: sameYear ? undefined : "numeric" });
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -118,10 +161,6 @@ function setView(view) {
     button.classList.toggle("active", button.dataset.view === view);
   });
   render();
-}
-
-function statusBadge(status) {
-  return `<span class="status-pill ${statusClass[status] || "neutral"}">${status}</span>`;
 }
 
 // tone is a status-pill class: stocked (green), soon (yellow), urgent (red)
@@ -146,29 +185,61 @@ function renderItemRow(item, options = {}) {
       </div>`
     : options.removable
       ? `<button class="mini-button remove-button" type="button" data-remove-list="${item.id}" aria-label="Remove from list">×</button>`
-      : statusBadge(item.status || options.badge || "");
+      : `<span aria-hidden="true"></span>`;
+  const tagsHtml = options.tags && options.tags.length
+    ? `<div class="tag-row">${tagPills(options.tags)}</div>`
+    : "";
 
   return `
     <div class="item-row ${item.done ? "done" : ""}">
       ${check}
       <div>
         <div class="item-name">${item.name}</div>
-        <div class="item-meta">${item.qty || item.reason || item.category || ""}</div>
+        <div class="item-meta">${options.meta ?? (item.qty || item.reason || item.category || "")}</div>
+        ${tagsHtml}
       </div>
       ${actions}
     </div>
   `;
 }
 
+// a prompt stays answered (either way) until the item is bought again
+function promptDismissed(item, tagKey, dismissed) {
+  const d = dismissed[`${nameStem(item.name)}|${tagKey}`];
+  return d && (!item.purchasedAt || d >= item.purchasedAt);
+}
+
 function renderHome() {
-  const buyNow = state.pantry.filter((item) => item.status === "Buy Now" || item.status === "Running Low");
-  $("#buyNowCount").textContent = buyNow.length;
-  $("#buySoonCount").textContent = state.pantry.filter((item) => item.status === "Buy Soon").length;
-  $("#stockedCount").textContent = state.pantry.filter((item) => item.status === "In Stock").length;
-  const attention = buyNow.concat(state.pantry.filter((item) => item.status === "Buy Soon")).slice(0, 5);
+  const tagged = state.pantry.map((item) => ({ item, tags: tagsFor(item) }));
+  const countOf = (key) => tagged.filter(({ tags }) => tags.some((t) => t.key === key)).length;
+  $("#expiredCount").textContent = countOf("expired");
+  $("#expiringCount").textContent = countOf("expiring");
+  $("#lowCount").textContent = countOf("low");
+
+  const dismissed = readStore(DISMISS_KEY);
+  const attention = [];
+  for (const { item, tags } of tagged) {
+    for (const tag of tags) {
+      if (!TAG_DEF[tag.key].actionable) continue;
+      if (promptDismissed(item, tag.key, dismissed)) continue;
+      attention.push({ item, tag });
+    }
+  }
   $("#attentionViewAll").style.display = attention.length ? "" : "none";
   $("#attentionItems").innerHTML = attention.length
-    ? attention.map((item) => renderItemRow(item)).join("")
+    ? attention.slice(0, 6).map(({ item, tag }) => `
+        <div class="item-row">
+          <span>${tagPills([tag])}</span>
+          <div>
+            <div class="item-name">${item.name}</div>
+            <div class="item-meta">${tag.reason || ""}</div>
+          </div>
+          <div class="row-actions">
+            <button class="mini-button" type="button" data-suggest-add="${item.id}" data-tag="${tag.key}">+ List</button>
+            <button class="mini-button remove-button" type="button" data-suggest-dismiss="${item.id}" data-tag="${tag.key}" aria-label="Dismiss">×</button>
+          </div>
+        </div>
+      `).join("")
     : `<div class="all-clear gray-box">
         <p class="all-clear-title">All clear.</p>
         <p class="all-clear-sub">Nothing needs your attention.</p>
@@ -189,32 +260,60 @@ function renderPantry() {
     return;
   }
   const query = state.search.trim().toLowerCase();
-  const visible = state.pantry.filter((item) => {
+  const tagged = state.pantry.map((item) => ({ item, tags: tagsFor(item) }));
+  const visible = tagged.filter(({ item, tags }) => {
     const matchesCategory = state.category === "All" || item.category === state.category;
-    const matchesStatus = !state.statusFilter || item.status === state.statusFilter;
+    const matchesTag = !state.tagFilter || tags.some((t) => t.key === state.tagFilter);
     const matchesSearch = !query || item.name.toLowerCase().includes(query);
-    return matchesCategory && matchesStatus && matchesSearch;
+    return matchesCategory && matchesTag && matchesSearch;
   });
-  const groups = [...new Set(visible.map((item) => item.category))];
+  const groups = [...new Set(visible.map(({ item }) => item.category))];
   const groupHtml = groups.map((category) => `
     <section>
       <h3 class="category-title">${category}</h3>
-      ${visible.filter((item) => item.category === category).map((item) => renderItemRow(item, { pantryActions: true })).join("")}
+      ${visible.filter(({ item }) => item.category === category).map(({ item, tags }) => renderItemRow(item, {
+        pantryActions: true,
+        tags,
+        meta: [item.qty, item.shelf ? `est. ${item.shelf.loc} life to ${fmtDay(item.shelf.expiresAt)}` : ""].filter(Boolean).join(" · ")
+      })).join("")}
     </section>
   `).join("") || `<p class="text-secondary">No matching pantry items.</p>`;
   $("#pantryItems").innerHTML = `<p class="whisper">+ / − to adjust by hand. The pantry keeps count.</p>` + groupHtml;
 }
 
+// pathway 2 — the generated list: every unanswered actionable tag seeds a row
 function ensureGroceryList() {
   if (state.groceryList.length) return;
-  state.groceryList = state.pantry
-    .filter((item) => ["Buy Now", "Running Low", "Buy Soon"].includes(item.status))
-    .map((item) => ({ ...item, done: false }));
+  const dismissed = readStore(DISMISS_KEY);
+  const seen = new Set();
+  for (const item of state.pantry) {
+    const actionable = tagsFor(item).filter((t) => TAG_DEF[t.key].actionable
+      && !promptDismissed(item, t.key, dismissed));
+    if (!actionable.length) continue;
+    const s = nameStem(item.name);
+    if (seen.has(s)) continue;
+    seen.add(s);
+    state.groceryList.push({ id: Date.now() + Math.random(), name: item.name, qty: "", done: false, reason: actionable[0].reason });
+  }
+}
+
+// quiet-tier suggestions: staples not already on the list
+function deriveSuggestions() {
+  const listed = new Set(state.groceryList.map((g) => nameStem(g.name)));
+  const out = [];
+  for (const item of state.pantry) {
+    const s = nameStem(item.name);
+    if (listed.has(s) || out.some((x) => nameStem(x.name) === s)) continue;
+    const learn = learningFor(s);
+    if (learn.trips >= 2 && learn.staple) out.push({ id: `staple-${s}`, name: item.name, reason: `Staple — on ${learn.trips} of your trips` });
+  }
+  return out;
 }
 
 function renderGroceryList() {
   ensureGroceryList();
-  $("#groceryItems").innerHTML = state.groceryList.map((item) => renderItemRow(item, { checkbox: true, removable: true })).join("");
+  state.suggestions = deriveSuggestions();
+  $("#groceryItems").innerHTML = state.groceryList.map((item) => renderItemRow(item, { checkbox: true, removable: true, meta: item.reason || item.qty || "" })).join("");
   $("#listExplainer").style.display = state.groceryList.length ? "none" : "";
   $("#createListBtn").style.display = state.groceryList.length ? "" : "none";
   $("#suggestedSection").style.display = state.suggestions.length ? "" : "none";
@@ -261,6 +360,7 @@ function renderUpload() {
 }
 
 function render() {
+  historyMemo = null; // learning reads fresh data once per render cycle
   renderHome();
   renderPantry();
   renderGroceryList();
@@ -329,6 +429,7 @@ const CATEGORY_HINTS = {
   "soap": "Household",
   "trash": "Household",
   "shampoo": "Personal Care",
+  "conditioner": "Personal Care",
   "toothpaste": "Personal Care",
   "deodorant": "Personal Care",
   "lotion": "Personal Care",
@@ -433,6 +534,142 @@ function guessCategory(name) {
   return "Pantry";
 }
 
+// ---- shelf life: USDA FoodKeeper dataset (data/foodkeeper.json, CC0) ----
+const kwStemOf = (k) => String(k).toLowerCase().replace(/s$/, "");
+let foodkeeperIndex = null;
+
+const foodkeeperReady = fetch("data/foodkeeper.json")
+  .then((r) => r.json())
+  .then((entries) => {
+    const df = {};
+    const usable = entries.filter((e) => e.name && Array.isArray(e.kw) && e.kw.length);
+    const stemsOf = (e) => [...new Set(e.kw.map(kwStemOf))];
+    usable.forEach((e) => stemsOf(e).forEach((s) => { df[s] = (df[s] || 0) + 1; }));
+    foodkeeperIndex = {
+      df,
+      entries: usable.map((e) => ({
+        entry: e,
+        head: kwStemOf(e.kw[0]),
+        kws: stemsOf(e).map((s) => ({
+          s,
+          re: new RegExp(`\\b${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}s?\\b`, "i")
+        }))
+      }))
+    };
+  })
+  .catch((e) => { console.warn("foodkeeper data unavailable — shelf tags will read no data:", e); });
+
+// FoodKeeper covers food only — non-food categories never match
+const NON_FOOD_CATS = new Set(["Household", "Personal Care"]);
+
+// keyword match, precision before recall: two independent keyword hits, an
+// exact head-keyword hit, or a rare keyword (document frequency <= 3).
+// Anything weaker returns null — a wrong span is worse than "no data".
+function matchShelfLife(names, category) {
+  if (!foodkeeperIndex || NON_FOOD_CATS.has(category)) return null;
+  const text = names.filter(Boolean).join(" | ").toLowerCase();
+  let best = null, bestKey = [0, 0, 0];
+  for (const { entry, head, kws } of foodkeeperIndex.entries) {
+    const hits = kws.filter(({ re }) => re.test(text)).map(({ s }) => s);
+    if (!hits.length) continue;
+    const headHit = hits.includes(head) ? 1 : 0;
+    if (hits.length === 1 && !headHit && (foodkeeperIndex.df[hits[0]] || 99) > 3) continue;
+    const key = [hits.length, headHit, hits.reduce((n, s) => n + s.length, 0)];
+    if (key[0] > bestKey[0]
+      || (key[0] === bestKey[0] && key[1] > bestKey[1])
+      || (key[0] === bestKey[0] && key[1] === bestKey[1] && key[2] > bestKey[2])) {
+      best = entry;
+      bestKey = key;
+    }
+  }
+  if (!best) return null;
+  const loc = best.fridge ? "fridge" : best.pantry ? "pantry" : "freezer";
+  const [minDays, maxDays] = best[loc];
+  return { match: best.name, loc, minDays, maxDays, midDays: Math.round((minDays + maxDays) / 2) };
+}
+
+// estimate: purchase date plus the midpoint of the storage span
+function shelfFor(item, rawName) {
+  const info = matchShelfLife([rawName, item.name], item.category);
+  if (!info) return null;
+  const purchased = item.purchasedAt ? new Date(item.purchasedAt) : new Date();
+  return { ...info, expiresAt: new Date(purchased.getTime() + info.midDays * DAY_MS).toISOString() };
+}
+
+// the receipt names its own purchase moment: "0200 6 88161 08-26-2026 13:06"
+function parseReceiptMeta(text) {
+  const m = (text || "").match(/\b(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}):(\d{2})\b/);
+  if (m) {
+    const mm = Number(m[1]), dd = Number(m[2]), yyyy = Number(m[3]);
+    if (mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31 && yyyy >= 2000 && yyyy <= 2099) {
+      return {
+        purchasedAt: new Date(yyyy, mm - 1, dd).toISOString(),
+        tripId: `${m[3]}-${m[1]}-${m[2]} ${m[4]}:${m[5]}`
+      };
+    }
+  }
+  const now = new Date();
+  return { purchasedAt: now.toISOString(), tripId: `scan ${now.toISOString()}` };
+}
+
+// ---- purchase-history learning store ----
+let historyMemo = null;
+const getHistory = () => historyMemo || (historyMemo = readStore(HISTORY_KEY));
+
+// one scanned receipt = one trip; rescanning the same receipt must not count
+// twice, so rows dedupe on tripId per item
+function recordPurchases(entries, meta) {
+  const history = readStore(HISTORY_KEY);
+  for (const it of entries) {
+    const s = nameStem(it.name);
+    const rows = history[s] || (history[s] = []);
+    if (rows.some((r) => r.tripId === meta.tripId)) continue;
+    const { count, unit } = itemUnit(it);
+    rows.push({ date: (it.purchasedAt || meta.purchasedAt).slice(0, 10), qty: count, unit: +unit.toFixed(2), tripId: meta.tripId });
+    rows.sort((a, b) => (a.date < b.date ? -1 : 1));
+  }
+  writeStore(HISTORY_KEY, history);
+  historyMemo = null;
+  return history;
+}
+
+function learningFor(stemKey) {
+  const rows = getHistory()[stemKey] || [];
+  const trips = new Set(rows.map((r) => r.tripId)).size;
+  if (trips < 2) return { trips };
+  const dates = [...new Set(rows.map((r) => r.date))].sort();
+  const gaps = [];
+  for (let i = 1; i < dates.length; i++) gaps.push(Math.round((new Date(dates[i]) - new Date(dates[i - 1])) / DAY_MS));
+  gaps.sort((a, b) => a - b);
+  const cadence = Math.max(1, gaps.length ? gaps[Math.floor(gaps.length / 2)] : 1);
+  const daysSince = Math.floor((Date.now() - new Date(dates[dates.length - 1])) / DAY_MS);
+  const last = rows[rows.length - 1], prev = rows[rows.length - 2];
+  return {
+    trips,
+    cadence,
+    daysSince,
+    low: daysSince >= cadence,
+    staple: trips >= 3,
+    priceUp: prev != null && last.unit > prev.unit + 0.009,
+    lastUnit: last.unit,
+    prevUnit: prev ? prev.unit : null
+  };
+}
+
+function markPromptAnswered(item, tagKey) {
+  const dismissed = readStore(DISMISS_KEY);
+  dismissed[`${nameStem(item.name)}|${tagKey}`] = new Date().toISOString();
+  writeStore(DISMISS_KEY, dismissed);
+}
+
+// append-only reinforcement log: every answered prompt is a labeled example
+function logSuggestion(name, tag, action) {
+  const log = readList(SUGGEST_LOG_KEY);
+  log.push({ name, tag, action, at: new Date().toISOString() });
+  writeStore(SUGGEST_LOG_KEY, log);
+  console.log(`suggestion ${action}: ${name} [${tag}] — logged (${log.length} events total)`);
+}
+
 // OTAL not TOTAL: thermal-paper T degrades into f/F ("fOTAL PURCHASE") —
 // SUBTOTAL still matches through its OTAL. Payment-footer words (PURCHASE,
 // MID/TID, AUTH, CARDHOLDER, MOBILE) keep mangled card lines out of the items.
@@ -471,10 +708,10 @@ function parseReceipt(text) {
     items.push({
       id: Date.now() + Math.random(),
       name: cleanName,
+      rawName: name,
       category,
       qty: "1",
-      price: priceMatch[1].replace(",", "."),
-      status: "In Stock"
+      price: priceMatch[1].replace(",", ".")
     });
   }
   console.table(tableRows);
@@ -484,16 +721,41 @@ function parseReceipt(text) {
 document.addEventListener("click", (event) => {
   const viewButton = event.target.closest("[data-view]");
   if (viewButton) {
-    if (viewButton.dataset.filterStatus) state.statusFilter = viewButton.dataset.filterStatus;
+    if (viewButton.dataset.filterTag) state.tagFilter = viewButton.dataset.filterTag;
     setView(viewButton.dataset.view);
   }
 
   const filter = event.target.closest("[data-category]");
   if (filter) {
     state.category = filter.dataset.category;
-    state.statusFilter = null;
+    state.tagFilter = null;
     $$(".filter-chip").forEach((button) => button.classList.toggle("active", button === filter));
     renderPantry();
+  }
+
+  const suggestAdd = event.target.closest("[data-suggest-add]");
+  if (suggestAdd) {
+    const item = state.pantry.find((p) => String(p.id) === suggestAdd.dataset.suggestAdd);
+    if (item) {
+      logSuggestion(item.name, suggestAdd.dataset.tag, "accepted");
+      markPromptAnswered(item, suggestAdd.dataset.tag);
+      if (!state.groceryList.some((g) => nameStem(g.name) === nameStem(item.name) && !g.done)) {
+        state.groceryList.push({ id: Date.now(), name: item.name, qty: "", done: false, reason: TAG_DEF[suggestAdd.dataset.tag].label.toLowerCase() });
+      }
+      saveState();
+      render();
+      toast(`${item.name} added to list`);
+    }
+  }
+
+  const suggestDismiss = event.target.closest("[data-suggest-dismiss]");
+  if (suggestDismiss) {
+    const item = state.pantry.find((p) => String(p.id) === suggestDismiss.dataset.suggestDismiss);
+    if (item) {
+      logSuggestion(item.name, suggestDismiss.dataset.tag, "dismissed");
+      markPromptAnswered(item, suggestDismiss.dataset.tag);
+      render();
+    }
   }
 
   const adjust = event.target.closest("[data-qty-adjust]");
@@ -522,10 +784,12 @@ document.addEventListener("click", (event) => {
   const suggestion = event.target.closest("[data-add-suggestion]");
   if (suggestion) {
     const item = state.suggestions.find((entry) => entry.id === suggestion.dataset.addSuggestion);
-    state.groceryList.push({ id: Date.now(), name: item.name, qty: "Suggested", status: "Buy Soon", done: false });
-    state.suggestions = state.suggestions.filter((entry) => entry.id !== item.id);
-    saveState();
-    renderGroceryList();
+    if (item) {
+      logSuggestion(item.name, "staple", "accepted");
+      state.groceryList.push({ id: Date.now(), name: item.name, qty: "", done: false, reason: item.reason });
+      saveState();
+      renderGroceryList();
+    }
   }
 });
 
@@ -542,16 +806,19 @@ $("#searchInput").addEventListener("input", (event) => {
   renderPantry();
 });
 
-$("#addItemForm").addEventListener("submit", (event) => {
+$("#addItemForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  state.pantry.push({
+  const item = {
     id: Date.now(),
     name: $("#newItemName").value,
     category: $("#newItemCategory").value,
     qty: "1",
-    status: $("#newItemStatus").value
-  });
+    purchasedAt: new Date().toISOString()
+  };
   event.target.reset();
+  try { await foodkeeperReady; } catch (e) { /* shelf stays unmatched */ }
+  item.shelf = shelfFor(item, null);
+  state.pantry.push(item);
   state.groceryList = [];
   saveState();
   render();
@@ -566,7 +833,6 @@ $("#quickAddForm").addEventListener("submit", (event) => {
     id: Date.now(),
     name,
     qty: "",
-    status: "Buy Now",
     done: false
   });
   event.target.reset();
@@ -823,18 +1089,19 @@ async function reconcile(items, data, canvas, worker) {
         && !/(\d+[.,]\d{2})\s*[A-Z]?\s*$/.test(line)
         && /\$\s?\d|\d[.,]\d/.test(line) && /[A-Za-z]{2}/.test(line));
       if (orphans.length === 1) {
-        const name = expandName(orphans[0]
+        const rawName = orphans[0]
           .replace(/\$?\s*\d+[.,]\d+.*$/, "")
           .replace(/[^A-Za-z0-9 %&'-]/g, " ").replace(/\s+/g, " ").trim()
-          .replace(/^\d+\s+/, "").replace(/\s+A$/, ""));
+          .replace(/^\d+\s+/, "").replace(/\s+A$/, "");
+        const name = expandName(rawName);
         if (name.length >= 2) {
           items.push({
             id: Date.now() + Math.random(),
             name,
+            rawName,
             category: guessCategory(name),
             qty: "1",
-            price: (-gap).toFixed(2),
-            status: "In Stock"
+            price: (-gap).toFixed(2)
           });
           report.recovered.push(`${name}: $${(-gap).toFixed(2)} (ledger completion — one unit short, one unpriced item line, printed total names the gap)`);
           break;
@@ -976,11 +1243,29 @@ $("#detectedItems").addEventListener("click", (event) => {
   renderUpload();
 });
 
-$("#addDetectedBtn").addEventListener("click", () => {
-  state.detected.forEach((item) => {
-    state.pantry.push({ ...item, id: Date.now() + Math.random() });
-    logEvent("purchase", item);
+$("#addDetectedBtn").addEventListener("click", async () => {
+  const meta = parseReceiptMeta(window.lastReceiptText);
+  try { await foodkeeperReady; } catch (e) { /* shelf stays unmatched */ }
+  const entries = state.detected.map((item) => {
+    const entry = { ...item, id: Date.now() + Math.random(), purchasedAt: meta.purchasedAt, tripId: meta.tripId };
+    entry.shelf = shelfFor(entry, entry.rawName);
+    return entry;
   });
+  entries.forEach((entry) => {
+    state.pantry.push(entry);
+    logEvent("purchase", entry);
+  });
+  const history = recordPurchases(entries, meta);
+  console.log(`trip recorded: ${meta.tripId} (purchase date ${meta.purchasedAt.slice(0, 10)})`);
+  console.table(entries.map((e) => ({
+    item: e.name,
+    shelf_match: e.shelf ? e.shelf.match : "— no data",
+    where: e.shelf ? e.shelf.loc : "",
+    est_expiry: e.shelf ? e.shelf.expiresAt.slice(0, 10) : ""
+  })));
+  console.log("purchase history:", history);
+  console.log("trips per item:", Object.fromEntries(
+    Object.entries(history).map(([k, v]) => [k, new Set(v.map((r) => r.tripId)).size])));
   state.scanned = false;
   state.groceryList = [];
   saveState();

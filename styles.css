@@ -7,6 +7,7 @@
   --green: #28745c;
   --red: #b42318;
   --amber: #a15c07;
+  --orange: #c4320a;
   --blue: #285a8f;
 }
 
@@ -88,6 +89,7 @@ h2 { margin-bottom: 0; font-size: 1rem; }
 .summary-card.urgent span { color: var(--red); }
 .summary-card.soon span { color: var(--amber); }
 .summary-card.stocked span { color: var(--green); }
+.summary-card.low-card span { color: var(--orange); }
 
 .action-stack { display: grid; gap: 10px; margin-bottom: 18px; }
 
@@ -181,6 +183,13 @@ h2 { margin-bottom: 0; font-size: 1rem; }
 .status-pill.soon { background: #fef0c7; color: var(--amber); }
 .status-pill.stocked { background: #dcfae6; color: var(--green); }
 .status-pill.neutral { background: #eef2f6; color: #344054; }
+.status-pill.low { background: #ffead5; color: var(--orange); }
+.status-pill.staple { background: #e8f1fb; color: var(--blue); }
+.status-pill.price-up { background: transparent; color: #6941c6; border: 1px solid #d6bbfb; font-weight: 700; }
+.status-pill.muted { background: #eef2f6; color: var(--muted); }
+
+.tag-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tag-row .status-pill { min-height: 20px; padding: 1px 7px; font-size: .68rem; }
 
 .row-actions {
   display: flex;

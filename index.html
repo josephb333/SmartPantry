@@ -29,17 +29,17 @@
 
       <section id="homeView" class="view active" aria-labelledby="pageTitle">
         <div class="summary-grid">
-          <button class="summary-card urgent" type="button" data-filter-status="Buy Now" data-view="pantry">
-            <span id="buyNowCount">0</span>
-            <small>Buy now</small>
+          <button class="summary-card urgent" type="button" data-filter-tag="expired" data-view="pantry">
+            <span id="expiredCount">0</span>
+            <small>Expired</small>
           </button>
-          <button class="summary-card soon" type="button" data-filter-status="Buy Soon" data-view="pantry">
-            <span id="buySoonCount">0</span>
-            <small>Buy soon</small>
+          <button class="summary-card soon" type="button" data-filter-tag="expiring" data-view="pantry">
+            <span id="expiringCount">0</span>
+            <small>Expiring</small>
           </button>
-          <button class="summary-card stocked" type="button" data-filter-status="In Stock" data-view="pantry">
-            <span id="stockedCount">0</span>
-            <small>Stocked</small>
+          <button class="summary-card low-card" type="button" data-filter-tag="low" data-view="pantry">
+            <span id="lowCount">0</span>
+            <small>Low</small>
           </button>
         </div>
 
@@ -140,12 +140,6 @@
               <option>Pantry</option>
               <option>Household</option>
               <option>Personal Care</option>
-            </select>
-            <select id="newItemStatus" class="form-select">
-              <option>In Stock</option>
-              <option>Running Low</option>
-              <option>Buy Soon</option>
-              <option>Buy Now</option>
             </select>
           </div>
           <button class="primary-action compact" type="submit">Add Item</button>
