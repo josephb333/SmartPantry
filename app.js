@@ -433,7 +433,10 @@ function guessCategory(name) {
   return "Pantry";
 }
 
-const JUNK = /TOTAL|SUBTOTAL|TAX|CHANGE|DEBIT|CREDIT|VISA|MASTERCARD|CASH|BALANCE|SAVINGS|COUPON|THANK/i;
+// OTAL not TOTAL: thermal-paper T degrades into f/F ("fOTAL PURCHASE") —
+// SUBTOTAL still matches through its OTAL. Payment-footer words (PURCHASE,
+// MID/TID, AUTH, CARDHOLDER, MOBILE) keep mangled card lines out of the items.
+const JUNK = /OTAL|TAX|CHANGE|DEBIT|CREDIT|VISA|MASTERCARD|CASH|BALANCE|SAVINGS|COUPON|THANK|PURCHASE|CARDHOLDER|\bMID\b|\bTID\b|\bAUTH\b|\bMOBILE\b/i;
 // price-ending sub-lines that describe the item above them, not a product
 const SUB_LINE_JUNK = /(REGULAR|SALE|ORIG(?:INAL)?)\s+PRICE|RETURN\s+VALUE|PRICE\s+YOU\s+PAY|MEMBER\s+(SAV|PRICE)/i;
 // count line under an item: "4 @ $1.19" — OCR often mangles the @ (8, e, —),
@@ -637,6 +640,29 @@ function isItemLine(t) {
 const MONEY = /\d+[.,]\d{2}/g;
 const parseMoney = (s) => parseFloat(s.replace(",", "."));
 
+// digit glyphs the thermal font degrades into on real scans
+const GLYPH_DIGIT = { b: 6, B: 8, l: 1, I: 1, "|": 1, o: 0, O: 0, s: 5, S: 5, z: 2, Z: 2 };
+
+const countUnits = (items) => items.reduce((s, it) => {
+  const m = String(it.qty).match(/^(\d+) @/);
+  return s + (m ? Number(m[1]) : 1);
+}, 0);
+
+// the summary legs of the audit, split out so the checksum can be re-proven
+// on post-collapse entries: unit counts vs printed count, price sum (with and
+// without printed tax) vs printed total
+function summarizeLedger(report, items) {
+  report.unitsCounted = countUnits(items);
+  report.unitsMatch = report.unitsPrinted != null && report.unitsCounted === report.unitsPrinted;
+  const pricesSum = items.reduce((s, it) => s + (parseFloat(it.price) || 0), 0);
+  report.pricesSum = +pricesSum.toFixed(2);
+  const tax = report.taxPrinted || 0;
+  report.totalMatch = (report.totalPrinted || []).some((t) =>
+    Math.abs(t - pricesSum) <= 0.02 || Math.abs(t - (pricesSum + tax)) <= 0.02);
+  report.reconciled = report.unitsMatch && report.totalMatch;
+  return report;
+}
+
 // for items still count-less, find the strip of paper where a qty line would
 // live: the bottom row of an absorbed (double-height) line box, or the gap
 // between the item's box and the next detected line
@@ -678,14 +704,36 @@ async function reconcile(items, data, canvas, worker) {
   let um = null;
   for (const l of rawLines) { um = l.match(/transaction\D*?(\d+)/i); if (um) break; }
   report.unitsPrinted = um ? Number(um[1]) : null;
+  if (report.unitsPrinted == null) {
+    // printed count read as a lookalike glyph ("Items in Transaction:b") —
+    // accept a single trailing glyph; the unit-count leg still has to confirm it
+    for (const l of rawLines) {
+      if (!/transaction/i.test(l) || /sale|payment/i.test(l)) continue;
+      const g = l.trim().match(/transaction\W*(.)$/i);
+      if (g && GLYPH_DIGIT[g[1]] != null) {
+        report.unitsPrinted = GLYPH_DIGIT[g[1]];
+        report.repairs.push(`units printed: glyph "${g[1]}" read as ${GLYPH_DIGIT[g[1]]}`);
+        break;
+      }
+    }
+  }
 
   const totalCandidates = [];
+  let taxPrinted = 0;
   rawLines.forEach((l) => {
-    if (/SUBTOTAL|TAX/i.test(l)) return;
-    if (!/TOTAL|BALANCE|VISA|MASTERCARD|DEBIT|CREDIT|CASH/i.test(l)) return;
+    if (/SUBTOTAL/i.test(l)) return;
+    if (/TAX/i.test(l)) {
+      // tax rides inside the printed total: "Tax: $4.99 @ 8.625% $0.43" —
+      // the last money token on the line is the amount actually charged
+      const t = l.trim().match(/(\d+[.,]\d{2})$/);
+      if (t) taxPrinted += parseMoney(t[1]);
+      return;
+    }
+    if (!/OTAL|BALANCE|VISA|MASTERCARD|DEBIT|CREDIT|CASH/i.test(l)) return;
     (l.match(MONEY) || []).forEach((m) => totalCandidates.push(parseMoney(m)));
   });
   report.totalPrinted = totalCandidates.length ? totalCandidates : null;
+  report.taxPrinted = +taxPrinted.toFixed(2);
 
   // line-level: verify each harvested count against its own line price;
   // repair whichever half (count or unit) the price arithmetic disproves
@@ -744,16 +792,117 @@ async function reconcile(items, data, canvas, worker) {
     }
   }
 
-  report.unitsCounted = items.reduce((s, it) => {
-    const m = String(it.qty).match(/^(\d+) @/);
-    return s + (m ? Number(m[1]) : 1);
-  }, 0);
-  report.unitsMatch = report.unitsPrinted != null && report.unitsCounted === report.unitsPrinted;
-  const pricesSum = items.reduce((s, it) => s + (parseFloat(it.price) || 0), 0);
-  report.pricesSum = +pricesSum.toFixed(2);
-  report.totalMatch = (report.totalPrinted || []).some((t) => Math.abs(t - pricesSum) <= 0.02);
-  report.reconciled = report.unitsMatch && report.totalMatch;
-  return report;
+  // ledger-driven repairs: printed total minus printed tax states what the
+  // item lines must sum to. Try each distinct printed candidate and accept
+  // only a repair that lands the sum exactly on it.
+  for (const t of [...new Set(totalCandidates)]) {
+    const target = +(t - taxPrinted).toFixed(2);
+    const gap = +(items.reduce((s, it) => s + (parseFloat(it.price) || 0), 0) - target).toFixed(2);
+    if (gap >= 10 && Math.round(gap * 100) % 1000 === 0) {
+      // one price over by leading digit noise ("$1.89" read as "61,89"):
+      // stripping the gap must leave the visible tail of the misread price
+      const cands = items.filter((it) => {
+        if (String(it.qty) !== "1") return false;
+        const fixed = +(parseFloat(it.price) - gap).toFixed(2);
+        if (fixed <= 0) return false;
+        const ps = String(it.price), fs = fixed.toFixed(2);
+        return ps.length > fs.length && ps.endsWith(fs) && /^\d{1,2}$/.test(ps.slice(0, ps.length - fs.length));
+      });
+      if (cands.length === 1) {
+        const it = cands[0];
+        const fixed = (parseFloat(it.price) - gap).toFixed(2);
+        report.repairs.push(`${it.name}: price $${it.price} -> $${fixed} (printed total disproves the leading digit)`);
+        it.price = fixed;
+        break;
+      }
+    } else if (gap <= -0.03 && gap >= -99.99 && report.unitsPrinted === countUnits(items) + 1) {
+      // one unit short and one item-shaped line failed its price parse — the
+      // ledger names the missing price exactly
+      const orphans = rawLines.map((l) => l.trim()).filter((line) =>
+        line.length > 2 && !JUNK.test(line) && !SUB_LINE_JUNK.test(line) && !QTY_LINE.test(line)
+        && !/(\d+[.,]\d{2})\s*[A-Z]?\s*$/.test(line)
+        && /\$\s?\d|\d[.,]\d/.test(line) && /[A-Za-z]{2}/.test(line));
+      if (orphans.length === 1) {
+        const name = expandName(orphans[0]
+          .replace(/\$?\s*\d+[.,]\d+.*$/, "")
+          .replace(/[^A-Za-z0-9 %&'-]/g, " ").replace(/\s+/g, " ").trim()
+          .replace(/^\d+\s+/, "").replace(/\s+A$/, ""));
+        if (name.length >= 2) {
+          items.push({
+            id: Date.now() + Math.random(),
+            name,
+            category: guessCategory(name),
+            qty: "1",
+            price: (-gap).toFixed(2),
+            status: "In Stock"
+          });
+          report.recovered.push(`${name}: $${(-gap).toFixed(2)} (ledger completion — one unit short, one unpriced item line, printed total names the gap)`);
+          break;
+        }
+      }
+    }
+  }
+
+  return summarizeLedger(report, items);
+}
+
+// receipts print one row per unit when the same product repeats. Single
+// trailing letters are flavor/size codes the OCR reads unreliably (M, §->
+// dropped, C), so the grouping stem drops them and one character slip is
+// tolerated — but only unit-price equality confirms any merge.
+function itemUnit(it) {
+  const m = String(it.qty).match(/^(\d+) @ \$(\d+\.\d{2})$/);
+  return m ? { count: Number(m[1]), unit: parseFloat(m[2]) } : { count: 1, unit: parseFloat(it.price) || 0 };
+}
+
+function nameStem(name) {
+  const tokens = String(name).toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim().split(" ");
+  while (tokens.length > 1 && tokens[tokens.length - 1].length === 1) tokens.pop();
+  return tokens.join(" ");
+}
+
+function within1Edit(a, b) {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0, j = 0, edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++;
+    else if (b.length > a.length) j++;
+    else { i++; j++; }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+function collapseItems(items) {
+  const groups = [];
+  for (const it of items) {
+    const { count, unit } = itemUnit(it);
+    const stem = nameStem(it.name);
+    const g = groups.find((x) =>
+      x.unit.toFixed(2) === unit.toFixed(2) &&
+      x.stems.some((s) => within1Edit(s, stem)));
+    if (g) { g.count += count; g.stems.push(stem); g.members.push(it); }
+    else groups.push({ unit, count, stems: [stem], members: [it] });
+  }
+  return groups.map((g) => {
+    if (g.members.length === 1) return g.members[0];
+    // the most frequent stem names the merged row
+    const freq = {};
+    g.stems.forEach((s) => { freq[s] = (freq[s] || 0) + 1; });
+    const modal = g.stems.reduce((a, b) => (freq[b] > freq[a] ? b : a));
+    const rep = g.members[g.stems.indexOf(modal)];
+    const absorbed = [...new Set(g.stems.filter((s) => s !== modal))];
+    console.log(`collapse: ${g.members.length} lines -> ${g.count} @ $${g.unit.toFixed(2)} ${rep.name}` +
+      (absorbed.length ? ` (absorbed reads: ${absorbed.join(", ")})` : ""));
+    return {
+      ...rep,
+      qty: `${g.count} @ $${g.unit.toFixed(2)}`,
+      price: (g.count * g.unit).toFixed(2),
+      collapsedFrom: g.members.length
+    };
+  });
 }
 
 async function scanReceipt(file) {
@@ -764,7 +913,16 @@ async function scanReceipt(file) {
     const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
     const items = parseReceipt(data.text);
     const reconciliation = items.length ? await reconcile(items, data, canvas, worker) : null;
-    return { text: data.text, items, reconciliation };
+    const collapsed = collapseItems(items);
+    if (reconciliation && collapsed.length !== items.length) {
+      // collapsing must not bend the ledger — re-prove the checksum on the
+      // merged entries
+      summarizeLedger(reconciliation, collapsed);
+      console.log(`post-collapse ledger: units ${reconciliation.unitsCounted}/${reconciliation.unitsPrinted}, ` +
+        `sum $${reconciliation.pricesSum}${reconciliation.taxPrinted ? ` + tax $${reconciliation.taxPrinted}` : ""}, ` +
+        `reconciled ${reconciliation.reconciled ? "yes" : "NO"}`);
+    }
+    return { text: data.text, items: collapsed, reconciliation };
   } finally {
     await worker.terminate();
   }
