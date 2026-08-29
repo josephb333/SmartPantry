@@ -4,7 +4,85 @@ Working notes from taking this from class prototype to real product. Newest firs
 
 ---
 
-## Day 13 — 2026-08-26 — The Cleanup
+## Day 16 — 2026-08-29 — The Ledger Argues Back
+
+Three real receipts now scan, repair themselves, and reconcile end to
+end — and the pantry finally says something about each item instead of
+wearing prototype-era status labels. Every claim below is
+console-verified; the full-pipeline lab suite passes 20/20 checks
+across all three receipts, twice (before and after the tag work).
+
+**Shipped (`36f45b0`):** quantity collapsing + ledger-driven repairs.
+- Repeated identical products (a receipt prints one row per unit) now
+  collapse to a single entry: the ramen receipt's six rows become
+  **"Meal Instant Ramen Cup — 6 @ $1.89 — $11.34"**. Grouping key is a
+  name stem (single trailing flavor letters dropped, one OCR character
+  slip tolerated: `CUR M`, `HEAL`, `CUP §` all merge), and a merge must
+  agree on unit price. The SUM checksum is re-proven on the collapsed
+  entries — "1 found · reconciled ✓".
+- The receipt's own arithmetic now repairs its worst OCR wounds, each
+  fix accepted only when the printed ledger confirms it exactly:
+  - `$1.89` read as `61,89` ($→6): the printed total disproves the
+    leading digit; price repaired to its visible tail.
+  - `Items in Transaction:b`: the printed count's degraded glyph maps
+    back to its digit, then still has to match the counted units.
+  - `fOTAL PURCHASE` (T→f): junk filter now matches the degraded
+    glyphs, so payment-footer rows can't leak in as items.
+  - Oatmeal's price read as `$2,949`, dropping the whole line: with one
+    unit missing and exactly one unpriced item-shaped line, the printed
+    total names the gap — the row comes back at $2.99. "Ledger
+    completion."
+  - A printed tax line (`Tax: … $0.43`) now joins the checksum, so
+    taxed receipts reconcile: 28.45 + 0.43 = 28.88 ✓.
+
+**Shipped (`7fda04d`):** the black flash on refresh is gone. The app is
+light-themed but never declared a color-scheme, so dark-mode browsers
+painted their near-black default canvas until CSS arrived — and the
+OCR script in `<head>` blocked first paint behind a CDN fetch. Now:
+`color-scheme` meta + inline `html` background so the first paint is
+already `#f5f7f8`, and Tesseract loads deferred (verified still loaded
+and scanning afterward).
+
+**Shipped (`54a8aad`):** the tag engine. The four-state status enum
+(Buy Now / Buy Soon / Running Low / In Stock) is retired; tags are now
+derived, not declared.
+- Three actionable tags — **Expired** (red), **Expiring** (amber),
+  **Low** (orange) — are the home screen: summary cards count them, and
+  each one renders a Needs Attention prompt with **+ List / ×**. Every
+  answer is appended to a suggestion log (`accepted` / `dismissed`),
+  and answered prompts stay quiet until the item is bought again.
+- Three quiet tags — **Staple** (blue), **Price ↑** (purple outline),
+  **No shelf data** (muted) — live only on pantry rows. A healthy item
+  carries no tag at all.
+- Shelf life comes from the bundled USDA FoodKeeper dataset (613
+  items, CC0). Matching is precision-first (two independent keyword
+  hits, an exact head keyword, or a rare keyword) — anything weaker is
+  honestly "No shelf data" rather than a guess, and Household /
+  Personal Care never match: the lemongrass conditioner no longer risks
+  being told it expires like a fresh herb. Estimate = the receipt's
+  own printed purchase date + span midpoint, shown on every matched
+  row ("est. fridge life to Aug 31").
+- The turkey's Expiring tag on day one was real, not staged: FoodKeeper
+  gives raw turkey breast 1–2 fridge days.
+- Purchase history persists per item stem ({date, qty, unit, tripId},
+  deduped by trip so re-scanning a receipt can't double-count).
+  Learning tags stay dormant until an item shows up on 2+ trips —
+  after scanning two receipts three days apart, espresso's gate opens
+  with a learned ~3-day cadence and truthfully fires nothing (it was
+  bought today at the same price). Recovered quantities flow straight
+  into history: bananas 6 @ $0.29, yogurt 4 @ $1.19.
+- The generated grocery list and the home prompts draw from the same
+  unanswered actionable tags; staples surface as list suggestions.
+
+**Console-verified flows:** three-receipt scan-confirm-rescan session
+on a fresh profile; suggestion accept writes the log entry and the
+list row; collapse re-proves units 6/6 and sum $11.34; lab suite
+20/20 twice. Known coarse edges, logged honestly: sliced deli turkey
+matches raw turkey parts (short span — errs toward early nagging), and
+the ramen receipt's footer date OCR'd one digit off (08-20 for 08-26),
+so its trip carries the printed-as-read date.
+
+
 
 UI pass: the prototype's fake furniture is gone, and empty is now a
 designed state instead of an accident.
