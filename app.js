@@ -124,6 +124,13 @@ function statusBadge(status) {
   return `<span class="status-pill ${statusClass[status] || "neutral"}">${status}</span>`;
 }
 
+// tone is a status-pill class: stocked (green), soon (yellow), urgent (red)
+function setScanStatus(text, tone) {
+  const pill = $("#scanStatus");
+  pill.textContent = text;
+  pill.className = `status-pill ${tone}`;
+}
+
 function renderItemRow(item, options = {}) {
   const check = options.checkbox
     ? `<input class="form-check-input" type="checkbox" ${item.done ? "checked" : ""} data-toggle-list="${item.id}">`
@@ -162,7 +169,7 @@ function renderHome() {
   $("#attentionViewAll").style.display = attention.length ? "" : "none";
   $("#attentionItems").innerHTML = attention.length
     ? attention.map((item) => renderItemRow(item)).join("")
-    : `<div class="all-clear">
+    : `<div class="all-clear gray-box">
         <p class="all-clear-title">All clear.</p>
         <p class="all-clear-sub">Nothing needs your attention.</p>
       </div>`;
@@ -174,7 +181,7 @@ function renderPantry() {
   $("#pantryFilters").style.display = hasItems ? "" : "none";
   if (!hasItems) {
     $("#pantryItems").innerHTML = `
-      <div class="empty-state">
+      <div class="empty-state gray-box">
         <p class="empty-title">Your pantry is empty.</p>
         <p class="empty-sub">Scan a receipt and it stocks itself.</p>
         <button class="primary-action compact" type="button" data-view="upload">Scan a receipt</button>
@@ -245,7 +252,7 @@ function renderUpload() {
         </div>
       `).join("")
     : `<p class="text-secondary">Process a receipt to preview extracted items.</p>`;
-  $("#scanStatus").textContent = state.scanned ? `${state.detected.length} found${state.reconBadge || ""}` : "Ready";
+  setScanStatus(state.scanned ? `${state.detected.length} found${state.reconBadge || ""}` : "Ready", "stocked");
   const addBtn = $("#addDetectedBtn");
   const showConfirm = state.scanned && state.detected.length > 0;
   addBtn.style.display = showConfirm ? "" : "none";
@@ -765,22 +772,23 @@ async function scanReceipt(file) {
 
 let receiptFile = null;
 
-$("#receiptInput").addEventListener("change", (event) => {
-  receiptFile = event.target.files[0] || null;
-  const preview = $("#receiptPreview");
-  if (receiptFile) {
-    preview.src = URL.createObjectURL(receiptFile);
-    preview.style.display = "block";
-    $("#previewLabel").style.display = "none";
-  } else {
-    preview.style.display = "none";
-    $("#previewLabel").style.display = "";
-  }
-});
+// camera and library inputs feed the same preview; the thumbnail is the
+// confirmation, so no filename is ever shown
+function bindReceiptSource(selector) {
+  $(selector).addEventListener("change", (event) => {
+    receiptFile = event.target.files[0] || null;
+    if (receiptFile) $("#receiptPreview").src = URL.createObjectURL(receiptFile);
+    $("#receiptCard").classList.toggle("has-photo", Boolean(receiptFile));
+    $("#scanReceiptBtn").disabled = !receiptFile;
+  });
+}
+
+bindReceiptSource("#receiptCameraInput");
+bindReceiptSource("#receiptLibraryInput");
 
 $("#scanReceiptBtn").addEventListener("click", async () => {
   if (!receiptFile) { toast("Choose a receipt photo first"); return; }
-  $("#scanStatus").textContent = "Reading...";
+  setScanStatus("Reading...", "soon");
   try {
     const { text, items, reconciliation } = await scanReceipt(receiptFile);
     window.lastReceiptText = text;
@@ -788,7 +796,7 @@ $("#scanReceiptBtn").addEventListener("click", async () => {
     if (reconciliation) console.log("reconciliation:", reconciliation);
     state.reconBadge = badgeFor(reconciliation);
     if (!items.length) {
-      $("#scanStatus").textContent = "No items found — try a clearer photo";
+      setScanStatus("No items found — try a clearer photo", "urgent");
       toast("Nothing parsed");
       return;
     }
@@ -798,7 +806,7 @@ $("#scanReceiptBtn").addEventListener("click", async () => {
     toast(`${items.length} items detected`);
   } catch (err) {
     console.error(err);
-    $("#scanStatus").textContent = "Read failed";
+    setScanStatus("Read failed", "urgent");
     toast("Could not read that image");
   }
 });

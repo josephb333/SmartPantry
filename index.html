@@ -60,30 +60,43 @@
 
       <section id="uploadView" class="view">
         <div class="scan-panel">
-          <div class="receipt-card">
-            <div class="receipt-line wide"></div>
-            <div class="receipt-line"></div>
-            <div class="receipt-line short"></div>
-            <div class="receipt-dash"></div>
-            <input id="receiptInput" type="file" accept="image/*" class="form-control">
-            <img id="receiptPreview" alt="Receipt preview" style="max-width:100%; display:none; border-radius:8px;">
-            <p id="previewLabel">Receipt image preview</p>
+          <div id="receiptCard" class="receipt-card">
+            <div class="receipt-empty">
+              <div class="receipt-line wide"></div>
+              <div class="receipt-line"></div>
+              <div class="receipt-line short"></div>
+              <div class="receipt-dash"></div>
+              <p class="receipt-cta">Add receipt photo</p>
+            </div>
+            <img id="receiptPreview" alt="Receipt preview">
+            <div class="receipt-sources">
+              <label class="source-button primary">
+                <input id="receiptCameraInput" type="file" accept="image/*" capture="environment" class="sr-only-input">
+                Take photo
+              </label>
+              <label class="source-button">
+                <input id="receiptLibraryInput" type="file" accept="image/*" class="sr-only-input">
+                Choose from library
+              </label>
+            </div>
           </div>
-          <button id="scanReceiptBtn" class="primary-action compact" type="button">Process Receipt</button>
+          <button id="scanReceiptBtn" class="primary-action compact" type="button" disabled>Scan receipt</button>
         </div>
 
         <section class="section-block">
           <div class="section-heading">
             <h2>Detected Items</h2>
-            <span id="scanStatus" class="status-pill neutral">Ready</span>
+            <span id="scanStatus" class="status-pill stocked">Ready</span>
           </div>
-          <div id="detectedItems" class="item-list"></div>
-          <button id="addDetectedBtn" class="mini-button" type="button">
-          <span class="cta-title">Everything look good?</span>
-          <span class="cta-sub">Add detected items to pantry</span>
-          </button>
-          </section>
-          </section>
+          <div class="gray-box">
+            <div id="detectedItems" class="item-list"></div>
+            <button id="addDetectedBtn" class="mini-button" type="button">
+              <span class="cta-title">Everything look good?</span>
+              <span class="cta-sub">Add detected items to pantry</span>
+            </button>
+          </div>
+        </section>
+      </section>
 
       <section id="pantryView" class="view">
         <label id="pantrySearch" class="search-box">
@@ -92,10 +105,17 @@
         </label>
         <div id="pantryFilters" class="filter-row" role="group" aria-label="Pantry filters">
           <button class="filter-chip active" type="button" data-category="All">All</button>
-          <button class="filter-chip" type="button" data-category="Dairy">Dairy</button>
-          <button class="filter-chip" type="button" data-category="Bakery">Bakery</button>
-          <button class="filter-chip" type="button" data-category="Pantry">Pantry</button>
           <button class="filter-chip" type="button" data-category="Produce">Produce</button>
+          <button class="filter-chip" type="button" data-category="Dairy">Dairy</button>
+          <button class="filter-chip" type="button" data-category="Protein">Protein</button>
+          <button class="filter-chip" type="button" data-category="Bakery">Bakery</button>
+          <button class="filter-chip" type="button" data-category="Frozen">Frozen</button>
+          <button class="filter-chip" type="button" data-category="Breakfast">Breakfast</button>
+          <button class="filter-chip" type="button" data-category="Snacks">Snacks</button>
+          <button class="filter-chip" type="button" data-category="Beverages">Beverages</button>
+          <button class="filter-chip" type="button" data-category="Pantry">Pantry</button>
+          <button class="filter-chip" type="button" data-category="Household">Household</button>
+          <button class="filter-chip" type="button" data-category="Personal Care">Personal Care</button>
         </div>
         <div id="pantryItems" class="grouped-list"></div>
 
@@ -104,11 +124,17 @@
           <input id="newItemName" class="form-control" required placeholder="Item name">
           <div class="form-grid">
             <select id="newItemCategory" class="form-select">
-              <option>Dairy</option>
-              <option>Bakery</option>
-              <option>Pantry</option>
               <option>Produce</option>
+              <option>Dairy</option>
               <option>Protein</option>
+              <option>Bakery</option>
+              <option>Frozen</option>
+              <option>Breakfast</option>
+              <option>Snacks</option>
+              <option>Beverages</option>
+              <option>Pantry</option>
+              <option>Household</option>
+              <option>Personal Care</option>
             </select>
             <select id="newItemStatus" class="form-select">
               <option>In Stock</option>
@@ -130,7 +156,7 @@
             <input id="extraItemName" class="form-control" required placeholder="+ Add an item...">
           </form>
           <div id="groceryItems" class="item-list check-list"></div>
-          <div id="listExplainer" class="list-explainer">
+          <div id="listExplainer" class="list-explainer gray-box">
             <p>Add by hand — or scan a receipt.</p>
             <p>Every scan teaches the pantry what you buy.</p>
             <p>The more it knows, the less you type.</p>
