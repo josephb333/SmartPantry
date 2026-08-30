@@ -4,7 +4,58 @@ Working notes from taking this from class prototype to real product. Newest firs
 
 ---
 
-## Day 16 — 2026-08-29 — The Ledger Argues Back
+## Day 17 — 2026-08-30 — The Parse Is a Draft
+
+First outside testers get the link today, so this session was about the
+moment they'll actually live in: the detected-items screen. Regression
+suite held 20/20 on three separate runs; the full upload → edit →
+checksum-flip → pantry → generate pass ran green before deploy.
+
+**Shipped (`0aa676a`):** the reveal screen is editable — correcting the
+parse beats rejecting it.
+- Every detected row: the pantry's − / + stepper (unit price fixed,
+  line total recomputed), an **Edit** toggle with a name field, a
+  category select, and a shelf-life select. The shelf select lists the
+  auto match with each storage span it offers, the runner-up FoodKeeper
+  candidates, and "No shelf estimate" — so the deli turkey that matched
+  raw turkey parts (1–2 day span) can be pointed at the pre-packaged
+  luncheon/deli entry in two taps.
+- A name edit re-runs the category guess and the FoodKeeper match
+  immediately — rename "Pecan Halves" to "Walnut Halves" and the row's
+  estimate switches to the walnut entry while you watch. Manual
+  category/shelf choices lock against later re-matching.
+- **Add item** covers what the parse missed entirely: name, qty,
+  price — price pre-filled from what the printed total says is still
+  unaccounted for. Reject the mangled oatmeal row and the pill reads
+  "4/5 units · $2.99 unaccounted"; add it back by hand and the badge
+  flips to **reconciled ✓** in place. The checksum re-proves itself
+  after every edit; the flip is the product, not a side effect.
+- Every correction appends {type, before, after, ts, tripId} to its own
+  localStorage log, and corrected values flow into the pantry and
+  purchase history exactly as parsed ones do.
+
+**Shipped (`e820d4b`):** the list page grew its **Generate from
+pantry** button (the home action generates too, after navigating).
+Generation pulls every unanswered expired / expiring / low item,
+deduped by name stem against what's already listed; dismissing a
+generated row logs the answer and keeps that item quiet until it's
+bought again. A healthy pantry generates nothing and says so —
+"Nothing needs restocking right now" — instead of padding. The list no
+longer auto-seeds itself on first visit.
+
+**Shipped (`5858a6a`):** a QA harness that doesn't exist unless you ask
+for it (localStorage `spDebug=1` or `?debug=1`): a date override so tag
+states can be exercised without waiting real days, a seed fixture that
+produces one item in each of the five states, and a full reset. A small
+QA chip marks the app whenever the harness is active — any screenshot
+of synthetic states labels itself.
+
+**Console-verified flows:** lab suite 20/20 × 3 (taxed-receipt
+28.45 + 0.43 = 28.88 and the six-line ramen collapse included); the
+composite pass above on a fresh profile; generate/dismiss/regenerate
+cycle with the suggestion log capturing generated and dismissed events.
+
+
 
 Three real receipts now scan, repair themselves, and reconcile end to
 end — and the pantry finally says something about each item instead of
