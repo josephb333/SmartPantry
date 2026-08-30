@@ -7,7 +7,11 @@ const defaultState = {
   pantry: [],
   groceryList: [],
   suggestions: [], // derived each render, never persisted
-  detected: []
+  detected: [],
+  editingId: null,     // detected row with its editor open
+  addingItem: false,   // missed-item form open on the reveal screen
+  receiptMeta: null,   // {purchasedAt, tripId} of the scan under review
+  reconciliation: null // live ledger report — recomputed after every edit
 };
 
 const STORAGE_KEY = "smartpantry";
@@ -34,9 +38,18 @@ function saveState() {
 }
 
 function resetState() {
-  [STORAGE_KEY, EVENT_LOG_KEY, ADJUST_LOG_KEY, HISTORY_KEY, DISMISS_KEY, SUGGEST_LOG_KEY]
+  [STORAGE_KEY, EVENT_LOG_KEY, ADJUST_LOG_KEY, HISTORY_KEY, DISMISS_KEY, SUGGEST_LOG_KEY, CORRECTION_LOG_KEY]
     .forEach((key) => localStorage.removeItem(key));
   location.reload();
+}
+
+// append-only reveal-screen correction log — user fixes to the parse are
+// labeled examples, same pattern as the pantry adjustment log
+function logCorrection(type, before, after) {
+  const log = readList(CORRECTION_LOG_KEY);
+  log.push({ type, before, after, ts: new Date().toISOString(), tripId: state.receiptMeta ? state.receiptMeta.tripId : null });
+  writeStore(CORRECTION_LOG_KEY, log);
+  console.log(`correction [${type}]:`, before, "->", after, `(${log.length} events)`);
 }
 
 const EVENT_LOG_KEY = "smartpantry_events";
@@ -44,6 +57,7 @@ const ADJUST_LOG_KEY = "smartpantry_adjustments";
 const HISTORY_KEY = "smartpantry_history";
 const DISMISS_KEY = "smartpantry_dismissed";
 const SUGGEST_LOG_KEY = "smartpantry_suggestion_log";
+const CORRECTION_LOG_KEY = "smartpantry_corrections";
 
 const readStore = (key) => { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch (e) { return {}; } };
 const readList = (key) => { try { const v = JSON.parse(localStorage.getItem(key)); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
@@ -338,20 +352,116 @@ function badgeFor(recon) {
   return "";
 }
 
+// live checksum: every edit on the reveal screen re-proves the ledger in
+// place — an edit that lands the sum flips the badge to reconciled ✓
+function refreshLedger() {
+  if (state.reconciliation) summarizeLedger(state.reconciliation, state.detected);
+}
+
+// what the printed total (minus tax) says is still missing from the items
+function ledgerResidual() {
+  const r = state.reconciliation;
+  if (!r || !r.totalPrinted || !r.totalPrinted.length) return null;
+  const freq = {};
+  r.totalPrinted.forEach((t) => { freq[t] = (freq[t] || 0) + 1; });
+  const grand = Number(Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0]);
+  return +(grand - (r.taxPrinted || 0) - r.pricesSum).toFixed(2);
+}
+
+const escAttr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+
+const APP_CATEGORIES = ["Produce", "Dairy", "Protein", "Bakery", "Frozen", "Breakfast",
+  "Snacks", "Beverages", "Pantry", "Household", "Personal Care"];
+
+// shelf dropdown: the auto match with every storage span it offers, the
+// runner-up matches, and an explicit no-estimate
+function shelfOptionsHtml(item) {
+  const cands = rankShelfCandidates([item.rawName, item.name], item.category, 4);
+  const opts = [];
+  cands.forEach((entry, i) => {
+    ["fridge", "pantry", "freezer"].forEach((loc) => {
+      if (!entry[loc]) return;
+      if (i > 0 && loc !== defaultLocOf(entry)) return;
+      const mid = Math.round((entry[loc][0] + entry[loc][1]) / 2);
+      const sel = item.shelf && item.shelf.match === entry.name && item.shelf.loc === loc ? "selected" : "";
+      opts.push(`<option value="${i}|${loc}" ${sel}>${escAttr(entry.name)} — ${loc}, ~${mid}d</option>`);
+    });
+  });
+  opts.push(`<option value="none" ${item.shelf ? "" : "selected"}>No shelf estimate</option>`);
+  return opts.join("");
+}
+
+function detectedRowHtml(item) {
+  const editing = state.editingId === item.id;
+  const shelfLine = item.shelf
+    ? `est. ${item.shelf.loc} life to ${fmtDay(item.shelf.expiresAt)}`
+    : "no shelf estimate";
+  const meta = [item.qty, `$${item.price}`, shelfLine].filter(Boolean).join(" · ");
+  const editor = editing ? `
+      <div class="detected-editor">
+        <input class="form-control" value="${escAttr(item.name)}" data-name-edit="${item.id}" aria-label="Item name">
+        <div class="form-grid">
+          <select class="form-select" data-category-edit="${item.id}" aria-label="Category">
+            ${APP_CATEGORIES.map((c) => `<option ${c === item.category ? "selected" : ""}>${c}</option>`).join("")}
+          </select>
+          <select class="form-select" data-shelf-edit="${item.id}" aria-label="Shelf life">
+            ${shelfOptionsHtml(item)}
+          </select>
+        </div>
+      </div>` : "";
+  return `
+    <div class="item-row detected-row">
+      <div class="qty-adjust">
+        <button class="qty-btn" type="button" data-detected-qty="${item.id}" data-delta="-1" aria-label="Decrease quantity">−</button>
+        <button class="qty-btn" type="button" data-detected-qty="${item.id}" data-delta="1" aria-label="Increase quantity">+</button>
+      </div>
+      <div>
+        <div class="item-name">${item.name}</div>
+        <div class="item-meta">${meta}</div>
+        ${editor}
+      </div>
+      <div class="row-actions">
+        <button class="mini-button" type="button" data-edit-detected="${item.id}">${editing ? "Done" : "Edit"}</button>
+        <button class="mini-button reject-btn" type="button" data-id="${item.id}" aria-label="Reject item">×</button>
+      </div>
+    </div>
+  `;
+}
+
+function addMissedHtml() {
+  if (!state.addingItem) {
+    return `<button class="mini-button add-missed-open" type="button" data-add-missed-open>Add item</button>`;
+  }
+  const res = ledgerResidual();
+  const prefill = res != null && res > 0.02 ? res.toFixed(2) : "";
+  return `
+    <form id="addMissedForm" class="add-missed">
+      <input id="missedName" class="form-control" required placeholder="Item name" aria-label="Item name">
+      <input id="missedQty" class="form-control" type="number" min="1" step="1" value="1" aria-label="Quantity">
+      <input id="missedPrice" class="form-control" type="number" min="0" step="0.01" value="${prefill}" placeholder="0.00" aria-label="Price">
+      <div class="form-actions">
+        <button class="mini-button" type="submit">Add item</button>
+        <button class="mini-button" type="button" data-add-missed-cancel>Cancel</button>
+      </div>
+    </form>
+  `;
+}
+
 function renderUpload() {
   $("#detectedItems").innerHTML = state.scanned
-    ? state.detected.map((item) => `
-        <div class="item-row">
-          <span></span>
-          <div>
-            <div class="item-name">${item.name}</div>
-            <div class="item-meta">${item.qty}</div>
-          </div>
-          <button class="mini-button reject-btn" type="button" data-id="${item.id}">Reject?</button>
-        </div>
-      `).join("")
+    ? state.detected.map(detectedRowHtml).join("") + addMissedHtml()
     : `<p class="text-secondary">Process a receipt to preview extracted items.</p>`;
-  setScanStatus(state.scanned ? `${state.detected.length} found${state.reconBadge || ""}` : "Ready", "stocked");
+  if (state.scanned) {
+    const r = state.reconciliation;
+    let pill = `${state.detected.length} found${badgeFor(r)}`;
+    const res = ledgerResidual();
+    if (r && !r.reconciled && res != null && Math.abs(res) > 0.02) {
+      pill += res > 0 ? ` · $${res.toFixed(2)} unaccounted` : ` · $${(-res).toFixed(2)} over`;
+    }
+    setScanStatus(pill, !r || r.reconciled ? "stocked" : "soon");
+  } else {
+    setScanStatus("Ready", "stocked");
+  }
   const addBtn = $("#addDetectedBtn");
   const showConfirm = state.scanned && state.detected.length > 0;
   addBtn.style.display = showConfirm ? "" : "none";
@@ -564,28 +674,33 @@ const NON_FOOD_CATS = new Set(["Household", "Personal Care"]);
 
 // keyword match, precision before recall: two independent keyword hits, an
 // exact head-keyword hit, or a rare keyword (document frequency <= 3).
-// Anything weaker returns null — a wrong span is worse than "no data".
-function matchShelfLife(names, category) {
-  if (!foodkeeperIndex || NON_FOOD_CATS.has(category)) return null;
+// Anything weaker scores nothing — a wrong span is worse than "no data".
+// Ties keep dataset order (stable sort), matching the original first-wins rule.
+function rankShelfCandidates(names, category, n) {
+  if (!foodkeeperIndex || NON_FOOD_CATS.has(category)) return [];
   const text = names.filter(Boolean).join(" | ").toLowerCase();
-  let best = null, bestKey = [0, 0, 0];
+  const scored = [];
   for (const { entry, head, kws } of foodkeeperIndex.entries) {
     const hits = kws.filter(({ re }) => re.test(text)).map(({ s }) => s);
     if (!hits.length) continue;
     const headHit = hits.includes(head) ? 1 : 0;
     if (hits.length === 1 && !headHit && (foodkeeperIndex.df[hits[0]] || 99) > 3) continue;
-    const key = [hits.length, headHit, hits.reduce((n, s) => n + s.length, 0)];
-    if (key[0] > bestKey[0]
-      || (key[0] === bestKey[0] && key[1] > bestKey[1])
-      || (key[0] === bestKey[0] && key[1] === bestKey[1] && key[2] > bestKey[2])) {
-      best = entry;
-      bestKey = key;
-    }
+    scored.push({ entry, key: [hits.length, headHit, hits.reduce((t, s) => t + s.length, 0)] });
   }
-  if (!best) return null;
-  const loc = best.fridge ? "fridge" : best.pantry ? "pantry" : "freezer";
-  const [minDays, maxDays] = best[loc];
-  return { match: best.name, loc, minDays, maxDays, midDays: Math.round((minDays + maxDays) / 2) };
+  scored.sort((a, b) => b.key[0] - a.key[0] || b.key[1] - a.key[1] || b.key[2] - a.key[2]);
+  return scored.slice(0, n).map((x) => x.entry);
+}
+
+const defaultLocOf = (entry) => (entry.fridge ? "fridge" : entry.pantry ? "pantry" : "freezer");
+
+const shelfInfoFrom = (entry, loc) => {
+  const [minDays, maxDays] = entry[loc];
+  return { match: entry.name, loc, minDays, maxDays, midDays: Math.round((minDays + maxDays) / 2) };
+};
+
+function matchShelfLife(names, category) {
+  const best = rankShelfCandidates(names, category, 1)[0];
+  return best ? shelfInfoFrom(best, defaultLocOf(best)) : null;
 }
 
 // estimate: purchase date plus the midpoint of the storage span
@@ -1219,14 +1334,22 @@ $("#scanReceiptBtn").addEventListener("click", async () => {
     window.lastReceiptText = text;
     window.lastReconciliation = reconciliation;
     if (reconciliation) console.log("reconciliation:", reconciliation);
-    state.reconBadge = badgeFor(reconciliation);
     if (!items.length) {
       setScanStatus("No items found — try a clearer photo", "urgent");
       toast("Nothing parsed");
       return;
     }
+    state.receiptMeta = parseReceiptMeta(text);
+    state.reconciliation = reconciliation;
+    try { await foodkeeperReady; } catch (e) { /* shelf stays unmatched */ }
+    items.forEach((item) => {
+      item.purchasedAt = state.receiptMeta.purchasedAt;
+      item.shelf = shelfFor(item, item.rawName);
+    });
     state.detected = items;
     state.scanned = true;
+    state.editingId = null;
+    state.addingItem = false;
     renderUpload();
     toast(`${items.length} items detected`);
   } catch (err) {
@@ -1236,21 +1359,154 @@ $("#scanReceiptBtn").addEventListener("click", async () => {
   }
 });
 
+// reveal-screen editing: the parse is a draft the user corrects in place
 $("#detectedItems").addEventListener("click", (event) => {
-  const btn = event.target.closest(".reject-btn");
-  if (!btn) return;
-  state.detected = state.detected.filter((item) => String(item.id) !== btn.dataset.id);
+  const editBtn = event.target.closest("[data-edit-detected]");
+  if (editBtn) {
+    const item = state.detected.find((d) => String(d.id) === editBtn.dataset.editDetected);
+    state.editingId = item && state.editingId !== item.id ? item.id : null;
+    renderUpload();
+    return;
+  }
+
+  const qtyBtn = event.target.closest("[data-detected-qty]");
+  if (qtyBtn) {
+    const item = state.detected.find((d) => String(d.id) === qtyBtn.dataset.detectedQty);
+    if (!item) return;
+    const { count, unit } = itemUnit(item);
+    const next = count + Number(qtyBtn.dataset.delta);
+    const before = `${item.qty} ($${item.price})`;
+    if (next <= 0) {
+      state.detected = state.detected.filter((d) => d.id !== item.id);
+      logCorrection("qty", before, "removed");
+    } else {
+      item.qty = `${next} @ $${unit.toFixed(2)}`;
+      item.price = (next * unit).toFixed(2);
+      logCorrection("qty", before, `${item.qty} ($${item.price})`);
+    }
+    refreshLedger();
+    renderUpload();
+    return;
+  }
+
+  const reject = event.target.closest(".reject-btn");
+  if (reject) {
+    const item = state.detected.find((d) => String(d.id) === reject.dataset.id);
+    state.detected = state.detected.filter((d) => String(d.id) !== reject.dataset.id);
+    if (item) logCorrection("reject", `${item.name} (${item.qty}, $${item.price})`, "removed");
+    refreshLedger();
+    renderUpload();
+    return;
+  }
+
+  if (event.target.closest("[data-add-missed-open]")) {
+    state.addingItem = true;
+    renderUpload();
+    const nameInput = $("#missedName");
+    if (nameInput) nameInput.focus();
+    return;
+  }
+  if (event.target.closest("[data-add-missed-cancel]")) {
+    state.addingItem = false;
+    renderUpload();
+  }
+});
+
+// Enter in the name field commits the edit (fires the change handler)
+$("#detectedItems").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && event.target.matches("[data-name-edit]")) {
+    event.preventDefault();
+    event.target.blur();
+  }
+});
+
+$("#detectedItems").addEventListener("change", (event) => {
+  const nameEdit = event.target.closest("[data-name-edit]");
+  if (nameEdit) {
+    const item = state.detected.find((d) => String(d.id) === nameEdit.dataset.nameEdit);
+    const next = nameEdit.value.trim();
+    if (item && next && next !== item.name) {
+      logCorrection("name", item.name, next);
+      item.name = next;
+      item.rawName = null; // the user's words replace the OCR read for matching
+      if (!item.categoryEdited) item.category = guessCategory(next);
+      if (!item.shelfLocked) item.shelf = shelfFor(item, null);
+    }
+    renderUpload();
+    return;
+  }
+
+  const catEdit = event.target.closest("[data-category-edit]");
+  if (catEdit) {
+    const item = state.detected.find((d) => String(d.id) === catEdit.dataset.categoryEdit);
+    if (item && catEdit.value !== item.category) {
+      logCorrection("category", item.category, catEdit.value);
+      item.category = catEdit.value;
+      item.categoryEdited = true;
+      if (!item.shelfLocked) item.shelf = shelfFor(item, item.rawName);
+    }
+    renderUpload();
+    return;
+  }
+
+  const shelfEdit = event.target.closest("[data-shelf-edit]");
+  if (shelfEdit) {
+    const item = state.detected.find((d) => String(d.id) === shelfEdit.dataset.shelfEdit);
+    if (!item) return;
+    const before = item.shelf ? `${item.shelf.match} (${item.shelf.loc}, ~${item.shelf.midDays}d)` : "no estimate";
+    if (shelfEdit.value === "none") {
+      item.shelf = null;
+    } else {
+      const [idx, loc] = shelfEdit.value.split("|");
+      const entry = rankShelfCandidates([item.rawName, item.name], item.category, 4)[Number(idx)];
+      if (entry && entry[loc]) {
+        const info = shelfInfoFrom(entry, loc);
+        const purchased = new Date(item.purchasedAt || Date.now());
+        item.shelf = { ...info, expiresAt: new Date(purchased.getTime() + info.midDays * DAY_MS).toISOString() };
+      }
+    }
+    item.shelfLocked = true;
+    const after = item.shelf ? `${item.shelf.match} (${item.shelf.loc}, ~${item.shelf.midDays}d)` : "no estimate";
+    logCorrection("shelf", before, after);
+    renderUpload();
+  }
+});
+
+document.addEventListener("submit", (event) => {
+  if (!event.target.matches("#addMissedForm")) return;
+  event.preventDefault();
+  const name = $("#missedName").value.trim();
+  if (!name) return;
+  const count = Math.max(1, Math.round(Number($("#missedQty").value) || 1));
+  const lineTotal = Math.max(0, Number($("#missedPrice").value) || 0);
+  const item = {
+    id: Date.now() + Math.random(),
+    name,
+    rawName: null,
+    category: guessCategory(name),
+    qty: count > 1 ? `${count} @ $${(lineTotal / count).toFixed(2)}` : "1",
+    price: lineTotal.toFixed(2),
+    purchasedAt: state.receiptMeta ? state.receiptMeta.purchasedAt : new Date().toISOString()
+  };
+  item.shelf = shelfFor(item, null);
+  state.detected.push(item);
+  logCorrection("add", null, `${item.name} (${item.qty}, $${item.price})`);
+  state.addingItem = false;
+  refreshLedger();
   renderUpload();
 });
 
 $("#addDetectedBtn").addEventListener("click", async () => {
-  const meta = parseReceiptMeta(window.lastReceiptText);
+  const meta = state.receiptMeta || parseReceiptMeta(window.lastReceiptText);
   try { await foodkeeperReady; } catch (e) { /* shelf stays unmatched */ }
-  const entries = state.detected.map((item) => {
-    const entry = { ...item, id: Date.now() + Math.random(), purchasedAt: meta.purchasedAt, tripId: meta.tripId };
-    entry.shelf = shelfFor(entry, entry.rawName);
-    return entry;
-  });
+  // shelf previews (including manual overrides) were settled on the reveal
+  // screen — corrected values flow into the pantry exactly as parsed ones do
+  const entries = state.detected.map((item) => ({
+    ...item,
+    id: Date.now() + Math.random(),
+    purchasedAt: item.purchasedAt || meta.purchasedAt,
+    tripId: meta.tripId
+  }));
   entries.forEach((entry) => {
     state.pantry.push(entry);
     logEvent("purchase", entry);
@@ -1267,6 +1523,8 @@ $("#addDetectedBtn").addEventListener("click", async () => {
   console.log("trips per item:", Object.fromEntries(
     Object.entries(history).map(([k, v]) => [k, new Set(v.map((r) => r.tripId)).size])));
   state.scanned = false;
+  state.editingId = null;
+  state.addingItem = false;
   state.groceryList = [];
   saveState();
   render();

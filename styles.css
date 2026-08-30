@@ -466,6 +466,25 @@ h2 { margin-bottom: 0; font-size: 1rem; }
 }
 
 /* Review screen affordances */
+.detected-row .row-actions { flex-direction: column; align-items: stretch; }
+
+.detected-editor { display: grid; gap: 6px; margin: 8px 0 2px; }
+.detected-editor .form-grid { margin: 0; }
+.detected-editor .form-control,
+.detected-editor .form-select { font-size: .88rem; padding: 6px 8px; }
+
+.add-missed {
+  display: grid;
+  grid-template-columns: 1fr 62px 84px;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.add-missed .form-control { font-size: .88rem; padding: 6px 8px; }
+.add-missed .form-actions { grid-column: 1 / -1; display: flex; gap: 6px; }
+
+.add-missed-open { margin-top: 10px; }
+
 .reject-btn {
   background: #C4444F;          /* soft red — muted, not alarm-red */
   border: 1px solid #C4444F;
