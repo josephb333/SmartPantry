@@ -295,20 +295,35 @@ function renderPantry() {
   $("#pantryItems").innerHTML = `<p class="whisper">+ / − to adjust by hand. The pantry keeps count.</p>` + groupHtml;
 }
 
-// pathway 2 — the generated list: every unanswered actionable tag seeds a row
-function ensureGroceryList() {
-  if (state.groceryList.length) return;
+// pathway 2 — explicit generation: every unanswered actionable tag (expired /
+// expiring / low) proposes a row. Stems already on the list, or whose prompt
+// was already answered since the last purchase, are skipped. Passive tags
+// never generate rows.
+function generateListFromPantry() {
   const dismissed = readStore(DISMISS_KEY);
-  const seen = new Set();
+  const listed = new Set(state.groceryList.map((g) => nameStem(g.name)));
+  let added = 0;
   for (const item of state.pantry) {
+    const s = nameStem(item.name);
+    if (listed.has(s)) continue;
     const actionable = tagsFor(item).filter((t) => TAG_DEF[t.key].actionable
       && !promptDismissed(item, t.key, dismissed));
     if (!actionable.length) continue;
-    const s = nameStem(item.name);
-    if (seen.has(s)) continue;
-    seen.add(s);
-    state.groceryList.push({ id: Date.now() + Math.random(), name: item.name, qty: "", done: false, reason: actionable[0].reason });
+    listed.add(s);
+    state.groceryList.push({
+      id: Date.now() + Math.random(),
+      name: item.name,
+      qty: "",
+      done: false,
+      reason: actionable[0].reason,
+      generatedTag: actionable[0].key
+    });
+    logSuggestion(item.name, actionable[0].key, "generated");
+    added++;
   }
+  saveState();
+  renderGroceryList();
+  toast(added ? `${added} item${added === 1 ? "" : "s"} added from your pantry` : "Nothing needs restocking right now");
 }
 
 // quiet-tier suggestions: staples not already on the list
@@ -325,7 +340,6 @@ function deriveSuggestions() {
 }
 
 function renderGroceryList() {
-  ensureGroceryList();
   state.suggestions = deriveSuggestions();
   $("#groceryItems").innerHTML = state.groceryList.map((item) => renderItemRow(item, { checkbox: true, removable: true, meta: item.reason || item.qty || "" })).join("");
   $("#listExplainer").style.display = state.groceryList.length ? "none" : "";
@@ -838,6 +852,7 @@ document.addEventListener("click", (event) => {
   if (viewButton) {
     if (viewButton.dataset.filterTag) state.tagFilter = viewButton.dataset.filterTag;
     setView(viewButton.dataset.view);
+    if (viewButton.dataset.generate != null) generateListFromPantry();
   }
 
   const filter = event.target.closest("[data-category]");
@@ -891,6 +906,13 @@ document.addEventListener("click", (event) => {
 
   const removeList = event.target.closest("[data-remove-list]");
   if (removeList) {
+    const row = state.groceryList.find((item) => String(item.id) === removeList.dataset.removeList);
+    // dismissing a generated row is an answer: log it and keep the item from
+    // regenerating until it is bought again
+    if (row && row.generatedTag) {
+      logSuggestion(row.name, row.generatedTag, "dismissed");
+      markPromptAnswered(row, row.generatedTag);
+    }
     state.groceryList = state.groceryList.filter((item) => String(item.id) !== removeList.dataset.removeList);
     saveState();
     renderGroceryList();
@@ -1531,6 +1553,8 @@ $("#addDetectedBtn").addEventListener("click", async () => {
   toast("Detected items added");
   setView("pantry");
 });
+
+$("#generateListBtn").addEventListener("click", generateListFromPantry);
 
 $("#createListBtn").addEventListener("click", () => {
   const count = state.groceryList.filter((item) => !item.done).length;

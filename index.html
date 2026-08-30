@@ -48,7 +48,7 @@
             <span>Upload Receipt</span>
             <small>Add purchased items from a receipt photo</small>
           </button>
-          <button class="secondary-action" type="button" data-view="list">
+          <button class="secondary-action" type="button" data-view="list" data-generate>
             <span>Generate Grocery List</span>
             <small>Use low stock and predicted needs</small>
           </button>
@@ -150,6 +150,7 @@
         <section class="section-block">
           <div class="section-heading">
             <h2>Your list.</h2>
+            <button id="generateListBtn" class="mini-button" type="button">Generate from pantry</button>
           </div>
           <form id="quickAddForm" class="list-add">
             <input id="extraItemName" class="form-control" required placeholder="+ Add an item...">
