@@ -132,10 +132,15 @@ const TAG_DEF = {
 
 const DAY_MS = 86400000;
 
+// QA-only time source: tags and cadence math read the clock through nowMs so
+// the debug harness can move "today" without touching stored data
+let todayOverride = null;
+const nowMs = () => (todayOverride ? todayOverride.getTime() : Date.now());
+
 function tagsFor(item) {
   const tags = [];
   if (item.shelf && item.shelf.expiresAt) {
-    const rem = Math.ceil((new Date(item.shelf.expiresAt) - Date.now()) / DAY_MS);
+    const rem = Math.ceil((new Date(item.shelf.expiresAt) - nowMs()) / DAY_MS);
     // expiring window: 20% of the estimated span or 2 days, whichever is longer
     const windowDays = Math.max(2, Math.round(item.shelf.midDays * 0.2));
     if (rem < 0) tags.push({ key: "expired", reason: `est. expired ${-rem}d ago` });
@@ -771,7 +776,7 @@ function learningFor(stemKey) {
   for (let i = 1; i < dates.length; i++) gaps.push(Math.round((new Date(dates[i]) - new Date(dates[i - 1])) / DAY_MS));
   gaps.sort((a, b) => a - b);
   const cadence = Math.max(1, gaps.length ? gaps[Math.floor(gaps.length / 2)] : 1);
-  const daysSince = Math.floor((Date.now() - new Date(dates[dates.length - 1])) / DAY_MS);
+  const daysSince = Math.floor((nowMs() - new Date(dates[dates.length - 1])) / DAY_MS);
   const last = rows[rows.length - 1], prev = rows[rows.length - 2];
   return {
     trips,
@@ -1565,5 +1570,72 @@ $("#createListBtn").addEventListener("click", () => {
 $("#resetBtn").addEventListener("click", () => {
   if (confirm("Reset SmartPantry data?")) resetState();
 });
+
+// ---- QA debug harness — invisible unless localStorage.spDebug === "1" or
+// the page is opened with ?debug=1. Everything it creates is synthetic and
+// QA-only. The chip marks the app whenever the harness is active.
+const debugActive = (() => {
+  try {
+    return localStorage.getItem("spDebug") === "1"
+      || new URLSearchParams(location.search).get("debug") === "1";
+  } catch (e) { return false; }
+})();
+
+if (debugActive) {
+  const chip = document.createElement("div");
+  chip.className = "qa-chip";
+  document.body.appendChild(chip);
+  const syncChip = () => {
+    chip.textContent = todayOverride ? `QA · today = ${todayOverride.toISOString().slice(0, 10)}` : "QA";
+  };
+  syncChip();
+
+  window.spqa = {
+    // pretend today is a different date for tag/list QA; setToday("") restores
+    setToday(iso) {
+      todayOverride = iso ? new Date(iso) : null;
+      syncChip();
+      render();
+      return todayOverride ? `today = ${todayOverride.toISOString().slice(0, 10)}` : "today = real time";
+    },
+    // synthetic backdated haul covering expired / expiring / low / healthy /
+    // no-data in one shot
+    async seed() {
+      try { await foodkeeperReady; } catch (e) { /* no-data everywhere is still a valid fixture */ }
+      const day = (n) => new Date(nowMs() - n * DAY_MS).toISOString();
+      const mk = (name, category, daysAgo, qty, price) => {
+        const item = {
+          id: Date.now() + Math.random(),
+          name, rawName: null, category, qty, price,
+          purchasedAt: day(daysAgo),
+          tripId: `QA-SEED-${daysAgo}d`
+        };
+        item.shelf = shelfFor(item, null);
+        return item;
+      };
+      const items = [
+        mk("Cherry Yogurt", "Dairy", 13, "1", "1.19"),                 // fridge ~11d -> expired
+        mk("Sliced Turkey Breast", "Protein", 1, "1", "5.99"),         // fridge ~2d -> expiring
+        mk("Ground Coffee", "Beverages", 8, "1", "9.99"),              // low via the 2-trip history below
+        mk("Oil Coconut Virgin (Organic)", "Pantry", 5, "1", "4.99"),  // healthy, untagged
+        mk("Meal Instant Ramen Cup", "Pantry", 3, "6 @ $1.89", "11.34") // no shelf data
+      ];
+      state.pantry.push(...items);
+      const history = readStore(HISTORY_KEY);
+      history[nameStem("Ground Coffee")] = [
+        { date: day(16).slice(0, 10), qty: 1, unit: 9.99, tripId: "QA-SEED-trip1" },
+        { date: day(8).slice(0, 10), qty: 1, unit: 9.99, tripId: "QA-SEED-trip2" }
+      ];
+      writeStore(HISTORY_KEY, history);
+      historyMemo = null;
+      saveState();
+      render();
+      console.log("QA fixture seeded (synthetic — QA only, never claims data):", items.map((i) => i.name));
+      return "seeded 5 items: expired / expiring / low / healthy / no data";
+    },
+    reset() { resetState(); }
+  };
+  console.log("QA harness active — spqa.setToday(iso), spqa.seed(), spqa.reset()");
+}
 
 render();

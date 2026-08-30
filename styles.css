@@ -353,6 +353,21 @@ h2 { margin-bottom: 0; font-size: 1rem; }
 
 .nav-item.active { color: var(--green); box-shadow: inset 0 3px 0 var(--green); }
 
+.qa-chip {
+  position: fixed;
+  left: 8px;
+  bottom: 74px;
+  z-index: 30;
+  background: #1f2933;
+  color: #fff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: .72rem;
+  font-weight: 800;
+  opacity: .85;
+  pointer-events: none;
+}
+
 .toast-message {
   position: fixed;
   left: 50%;
