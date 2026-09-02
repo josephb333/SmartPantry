@@ -291,6 +291,33 @@ h2 { margin-bottom: 0; font-size: 1rem; }
 .receipt-card.has-photo .receipt-empty { display: none; }
 .receipt-card.has-photo #receiptPreview { display: block; margin: 0 auto; }
 
+/* 4-corner perspective editor — shown between photo pick and scan */
+.corner-editor { display: grid; gap: 10px; }
+
+#cornerCanvas {
+  width: 100%;
+  border-radius: 8px;
+  touch-action: none;   /* corner drags must not scroll the page */
+  cursor: crosshair;
+}
+
+.corner-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: .84rem;
+}
+
+.corner-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.corner-actions .source-button { text-align: center; }
+
+.receipt-card.editing .receipt-empty { display: none; }
+.receipt-card.editing #receiptPreview { display: none; }
+
 .receipt-sources { display: grid; gap: 8px; margin-top: 14px; }
 
 .source-button {

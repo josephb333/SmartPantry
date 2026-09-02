@@ -74,6 +74,14 @@
               <p class="receipt-cta">Add receipt photo</p>
             </div>
             <img id="receiptPreview" alt="Receipt preview">
+            <div id="cornerEditor" class="corner-editor" hidden>
+              <canvas id="cornerCanvas" aria-label="Receipt corner adjustment"></canvas>
+              <p class="corner-hint">Drag the corners to the receipt's edges.</p>
+              <div class="corner-actions">
+                <button id="cornerConfirmBtn" class="source-button primary" type="button">Use corners</button>
+                <button id="cornerSkipBtn" class="source-button" type="button">Skip</button>
+              </div>
+            </div>
             <div class="receipt-sources">
               <label class="source-button primary">
                 <input id="receiptCameraInput" type="file" accept="image/*" capture="environment" class="sr-only-input">

@@ -988,22 +988,29 @@ $("#quickAddForm").addEventListener("submit", (event) => {
 // photos already have big glyphs.
 const MAX_OCR_PIXELS = 13e6;
 
-async function preprocessReceipt(file) {
-  const img = new Image();
-  img.src = URL.createObjectURL(file);
+async function preprocessReceipt(source) {
+  // source is the photo file, or the corner-corrected canvas from the
+  // perspective editor — the same grayscale/stretch treatment applies to both
+  const fromCanvas = Boolean(source && source.getContext);
+  const img = fromCanvas ? null : new Image();
+  if (!fromCanvas) img.src = URL.createObjectURL(source);
   try {
-    await new Promise((res, rej) => {
-      img.onload = res;
-      img.onerror = () => rej(new Error("could not load receipt image"));
-    });
-    const factor = Math.max(1, Math.min(2, Math.sqrt(MAX_OCR_PIXELS / (img.naturalWidth * img.naturalHeight))));
+    if (!fromCanvas) {
+      await new Promise((res, rej) => {
+        img.onload = res;
+        img.onerror = () => rej(new Error("could not load receipt image"));
+      });
+    }
+    const srcW = fromCanvas ? source.width : img.naturalWidth;
+    const srcH = fromCanvas ? source.height : img.naturalHeight;
+    const factor = Math.max(1, Math.min(2, Math.sqrt(MAX_OCR_PIXELS / (srcW * srcH))));
     const canvas = document.createElement("canvas");
-    canvas.width = Math.round(img.naturalWidth * factor);
-    canvas.height = Math.round(img.naturalHeight * factor);
+    canvas.width = Math.round(srcW * factor);
+    canvas.height = Math.round(srcH * factor);
     const ctx = canvas.getContext("2d");
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(fromCanvas ? source : img, 0, 0, canvas.width, canvas.height);
 
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const d = imageData.data;
@@ -1027,7 +1034,7 @@ async function preprocessReceipt(file) {
     ctx.putImageData(imageData, 0, 0);
     return canvas;
   } finally {
-    URL.revokeObjectURL(img.src);
+    if (!fromCanvas) URL.revokeObjectURL(img.src);
   }
 }
 
@@ -1338,15 +1345,256 @@ async function scanReceipt(file) {
 }
 
 let receiptFile = null;
+let correctedCanvas = null; // corner-corrected scan source; null = scan the raw file
 
-// camera and library inputs feed the same preview; the thumbnail is the
-// confirmation, so no filename is ever shown
+// ---- manual 4-corner perspective correction (pre-OCR acquisition layer) ----
+// A picked photo renders on a canvas with four draggable corner handles
+// (pointer events — one code path for touch and mouse), defaulting to the
+// image corners. Confirm warps the marked quad to an upright rectangle in
+// pure canvas JS and the warped canvas replaces the raw photo as the scan
+// source; Skip keeps the raw photo and is always available. Everything
+// downstream of scanReceipt is untouched.
+
+const cornerUI = { bitmap: null, corners: null, drag: -1 };
+const HANDLE_GRAB = 28; // css px within which a corner responds to a drag
+
+function sizeCornerCanvas() {
+  const canvas = $("#cornerCanvas");
+  const bmp = cornerUI.bitmap;
+  const cssW = $("#cornerEditor").clientWidth || 360;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssW * (bmp.height / bmp.width) * dpr);
+}
+
+function openCornerEditor() {
+  const card = $("#receiptCard");
+  card.classList.add("editing");
+  card.classList.remove("has-photo");
+  $("#cornerEditor").hidden = false;
+  $("#scanReceiptBtn").disabled = true; // corners or Skip first — one scan source of truth
+  sizeCornerCanvas();
+  const bmp = cornerUI.bitmap;
+  cornerUI.corners = [
+    { x: 0, y: 0 }, { x: bmp.width, y: 0 },
+    { x: bmp.width, y: bmp.height }, { x: 0, y: bmp.height }
+  ];
+  drawCornerEditor();
+}
+
+// corners live in image pixels, so a resize (rotation, window change) only
+// needs the canvas re-sized and re-drawn — debounced, the redraw is heavy
+window.addEventListener("resize", () => {
+  if (!cornerUI.bitmap || $("#cornerEditor").hidden) return;
+  clearTimeout(cornerUI.resizeTimer);
+  cornerUI.resizeTimer = setTimeout(() => {
+    if (!cornerUI.bitmap || $("#cornerEditor").hidden) return;
+    sizeCornerCanvas();
+    drawCornerEditor();
+  }, 150);
+});
+
+function drawCornerEditor() {
+  const canvas = $("#cornerCanvas");
+  const ctx = canvas.getContext("2d");
+  const k = canvas.width / cornerUI.bitmap.width; // image px -> backing px
+  ctx.drawImage(cornerUI.bitmap, 0, 0, canvas.width, canvas.height);
+  const quad = cornerUI.corners.map((p) => ({ x: p.x * k, y: p.y * k }));
+  // veil everything outside the marked quad
+  ctx.beginPath();
+  ctx.rect(0, 0, canvas.width, canvas.height);
+  ctx.moveTo(quad[0].x, quad[0].y);
+  for (let i = 3; i >= 0; i--) ctx.lineTo(quad[i].x, quad[i].y);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(31, 41, 51, .45)";
+  ctx.fill("evenodd");
+  ctx.lineWidth = Math.max(2, canvas.width / 220);
+  ctx.strokeStyle = "#28745c";
+  ctx.beginPath();
+  quad.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.closePath();
+  ctx.stroke();
+  const r = Math.max(9, canvas.width / 42);
+  quad.forEach((p) => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, 7);
+    ctx.fillStyle = "#fff";
+    ctx.fill();
+    ctx.stroke();
+  });
+}
+
+function cornerFromEvent(event) {
+  const rect = event.target.getBoundingClientRect();
+  const sx = cornerUI.bitmap.width / rect.width; // css px -> image px
+  return {
+    x: Math.min(Math.max((event.clientX - rect.left) * sx, 0), cornerUI.bitmap.width),
+    y: Math.min(Math.max((event.clientY - rect.top) * sx, 0), cornerUI.bitmap.height)
+  };
+}
+
+$("#cornerCanvas").addEventListener("pointerdown", (event) => {
+  if (!cornerUI.bitmap) return;
+  const rect = event.target.getBoundingClientRect();
+  const grab = HANDLE_GRAB * (cornerUI.bitmap.width / rect.width);
+  const p = cornerFromEvent(event);
+  let best = -1, bestD = grab;
+  cornerUI.corners.forEach((c, i) => {
+    const d = Math.hypot(c.x - p.x, c.y - p.y);
+    if (d < bestD) { best = i; bestD = d; }
+  });
+  if (best < 0) return;
+  cornerUI.drag = best;
+  try { event.target.setPointerCapture(event.pointerId); } catch (e) { /* capture is optional */ }
+  event.preventDefault();
+});
+
+$("#cornerCanvas").addEventListener("pointermove", (event) => {
+  if (cornerUI.drag < 0 || !cornerUI.bitmap) return;
+  cornerUI.corners[cornerUI.drag] = cornerFromEvent(event);
+  drawCornerEditor();
+});
+
+const endCornerDrag = () => { cornerUI.drag = -1; };
+$("#cornerCanvas").addEventListener("pointerup", endCornerDrag);
+$("#cornerCanvas").addEventListener("pointercancel", endCornerDrag);
+
+// projective map of the marked quad to an upright rectangle: unit-square
+// homography (adjugate solve), inverse-mapped with bilinear sampling — pure
+// canvas JS, no OpenCV. Output keeps the quad's own edge lengths, capped at
+// the proven mobile canvas envelope.
+function warpReceipt(sourceImage, corners) {
+  const [p0, p1, p2, p3] = corners; // TL, TR, BR, BL
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  let outWf = (dist(p0, p1) + dist(p3, p2)) / 2;
+  let outHf = (dist(p0, p3) + dist(p1, p2)) / 2;
+  if (outWf * outHf > MAX_OCR_PIXELS) {
+    const s = Math.sqrt(MAX_OCR_PIXELS / (outWf * outHf));
+    outWf *= s; outHf *= s;
+  }
+  const outW = Math.max(1, Math.round(outWf));
+  const outH = Math.max(1, Math.round(outHf));
+
+  const sx = p0.x - p1.x + p2.x - p3.x;
+  const sy = p0.y - p1.y + p2.y - p3.y;
+  let a, b, c, d, e, f, g, h;
+  if (Math.abs(sx) < 1e-9 && Math.abs(sy) < 1e-9) {
+    a = p1.x - p0.x; b = p2.x - p1.x; c = p0.x;
+    d = p1.y - p0.y; e = p2.y - p1.y; f = p0.y;
+    g = 0; h = 0;
+  } else {
+    const d1x = p1.x - p2.x, d1y = p1.y - p2.y;
+    const d2x = p3.x - p2.x, d2y = p3.y - p2.y;
+    const den = d1x * d2y - d1y * d2x;
+    g = (sx * d2y - sy * d2x) / den;
+    h = (d1x * sy - d1y * sx) / den;
+    a = p1.x - p0.x + g * p1.x;
+    b = p3.x - p0.x + h * p3.x;
+    c = p0.x;
+    d = p1.y - p0.y + g * p1.y;
+    e = p3.y - p0.y + h * p3.y;
+    f = p0.y;
+  }
+
+  const srcCanvas = document.createElement("canvas");
+  srcCanvas.width = sourceImage.width;
+  srcCanvas.height = sourceImage.height;
+  srcCanvas.getContext("2d").drawImage(sourceImage, 0, 0);
+  const sctx = srcCanvas.getContext("2d");
+  const src = sctx.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
+  const sd = src.data, sw = srcCanvas.width, sh = srcCanvas.height;
+  const out = new ImageData(outW, outH);
+  const od = out.data;
+  for (let j = 0; j < outH; j++) {
+    const v = j / outH;
+    for (let i = 0; i < outW; i++) {
+      const u = i / outW;
+      const den2 = g * u + h * v + 1;
+      let x = (a * u + b * v + c) / den2;
+      let y = (d * u + e * v + f) / den2;
+      x = Math.min(Math.max(x, 0), sw - 1.001);
+      y = Math.min(Math.max(y, 0), sh - 1.001);
+      const x0 = Math.floor(x), y0 = Math.floor(y);
+      const fx = x - x0, fy = y - y0;
+      const i00 = (y0 * sw + x0) * 4, i10 = i00 + 4, i01 = i00 + sw * 4, i11 = i01 + 4;
+      const oi = (j * outW + i) * 4;
+      for (let ch = 0; ch < 3; ch++) {
+        od[oi + ch] =
+          sd[i00 + ch] * (1 - fx) * (1 - fy) + sd[i10 + ch] * fx * (1 - fy) +
+          sd[i01 + ch] * (1 - fx) * fy + sd[i11 + ch] * fx * fy;
+      }
+      od[oi + 3] = 255;
+    }
+  }
+  const oc = document.createElement("canvas");
+  oc.width = outW;
+  oc.height = outH;
+  oc.getContext("2d").putImageData(out, 0, 0);
+  return oc;
+}
+
+// the thumbnail is the confirmation (corrected or raw) — no filename shown
+function closeCornerEditor(warped) {
+  correctedCanvas = warped;
+  const card = $("#receiptCard");
+  $("#cornerEditor").hidden = true;
+  card.classList.remove("editing");
+  const preview = $("#receiptPreview");
+  if (warped) {
+    warped.toBlob((blob) => { if (blob) preview.src = URL.createObjectURL(blob); }, "image/jpeg", 0.85);
+  } else if (receiptFile) {
+    preview.src = URL.createObjectURL(receiptFile);
+  }
+  card.classList.toggle("has-photo", Boolean(receiptFile));
+  $("#scanReceiptBtn").disabled = !receiptFile;
+  if (cornerUI.bitmap) { cornerUI.bitmap.close(); cornerUI.bitmap = null; }
+}
+
+$("#cornerConfirmBtn").addEventListener("click", () => {
+  if (!cornerUI.bitmap) return;
+  const bmp = cornerUI.bitmap;
+  // unmoved handles mark the full frame; warping that is a pure re-encode,
+  // which Phase 0 showed can flip glyphs — treat it as Skip
+  const tol = Math.max(bmp.width, bmp.height) * 0.01;
+  const defaults = [
+    { x: 0, y: 0 }, { x: bmp.width, y: 0 },
+    { x: bmp.width, y: bmp.height }, { x: 0, y: bmp.height }
+  ];
+  const untouched = cornerUI.corners.every((c, i) =>
+    Math.hypot(c.x - defaults[i].x, c.y - defaults[i].y) <= tol);
+  if (untouched) {
+    console.log("corner correction: handles at image corners — scanning the raw photo");
+    closeCornerEditor(null);
+    return;
+  }
+  const warped = warpReceipt(bmp, cornerUI.corners);
+  console.log(`corner correction applied: ${bmp.width}x${bmp.height} -> ${warped.width}x${warped.height}`);
+  closeCornerEditor(warped);
+});
+
+$("#cornerSkipBtn").addEventListener("click", () => closeCornerEditor(null));
+
+// camera and library inputs feed the same corner editor
 function bindReceiptSource(selector) {
-  $(selector).addEventListener("change", (event) => {
+  $(selector).addEventListener("change", async (event) => {
     receiptFile = event.target.files[0] || null;
-    if (receiptFile) $("#receiptPreview").src = URL.createObjectURL(receiptFile);
-    $("#receiptCard").classList.toggle("has-photo", Boolean(receiptFile));
-    $("#scanReceiptBtn").disabled = !receiptFile;
+    correctedCanvas = null;
+    if (cornerUI.bitmap) { cornerUI.bitmap.close(); cornerUI.bitmap = null; }
+    if (!receiptFile) {
+      $("#receiptCard").classList.remove("has-photo", "editing");
+      $("#cornerEditor").hidden = true;
+      $("#scanReceiptBtn").disabled = true;
+      return;
+    }
+    try {
+      cornerUI.bitmap = await createImageBitmap(receiptFile);
+      openCornerEditor();
+    } catch (err) {
+      // browsers without createImageBitmap(File) (older iOS) or an
+      // undecodable image: fall straight through to the raw flow
+      console.error(err);
+      closeCornerEditor(null);
+    }
   });
 }
 
@@ -1357,7 +1605,11 @@ $("#scanReceiptBtn").addEventListener("click", async () => {
   if (!receiptFile) { toast("Choose a receipt photo first"); return; }
   setScanStatus("Reading...", "soon");
   try {
-    const { text, items, reconciliation } = await scanReceipt(receiptFile);
+    const source = correctedCanvas || receiptFile;
+    console.log(`scan source: ${correctedCanvas
+      ? `corner-corrected canvas ${correctedCanvas.width}x${correctedCanvas.height}`
+      : "raw photo file"}`);
+    const { text, items, reconciliation } = await scanReceipt(source);
     window.lastReceiptText = text;
     window.lastReconciliation = reconciliation;
     if (reconciliation) console.log("reconciliation:", reconciliation);
